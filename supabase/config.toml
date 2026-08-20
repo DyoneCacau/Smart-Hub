@@ -1,0 +1,37 @@
+project_id = "jahjwuydesfytlmjwucx"
+
+[functions.asaas-webhook]
+verify_jwt = false
+
+[functions.asaas-reconcile]
+verify_jwt = false
+
+[functions.check-subscriptions]
+verify_jwt = false
+
+[functions.asaas-create-checkout]
+verify_jwt = false
+
+[functions.asaas-list-payments]
+verify_jwt = false
+
+[functions.asaas-cancel-subscription]
+verify_jwt = false
+
+[functions.asaas-set-card-recurring]
+verify_jwt = false
+
+[functions.asaas-choose-payment-method]
+verify_jwt = false
+
+[functions.meta-save-channel]
+verify_jwt = true
+
+[functions.create-complete-client]
+verify_jwt = true
+
+[functions.add-clinic-unit]
+verify_jwt = false
+
+[functions.document-signature]
+verify_jwt = false
