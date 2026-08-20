@@ -29,7 +29,6 @@ function normalizeIntegration(row: Record<string, unknown>): Integration {
   const tenantId = String(row.workspace_id || row.clinic_id || '');
   return {
     id: String(row.id),
-    workspace_id: tenantId,
     clinic_id: tenantId,
     provider: row.provider as Integration['provider'],
     category: row.category as Integration['category'],
