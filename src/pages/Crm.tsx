@@ -152,7 +152,7 @@ export default function Crm() {
                   <h3 className="mb-3 font-semibold">Briefing recebido</h3>
                   <div className="space-y-2">
                     {briefingEntries(selectedLead).map(([key, value]) => (
-                      <div key={key} className="rounded-lg border p-3"><div className="text-xs font-medium text-muted-foreground">{FIELD_LABELS[key] || key.replaceAll('_', ' ')}</div><div className="mt-1 whitespace-pre-wrap text-sm">{value}</div></div>
+                      <div key={key} className="rounded-lg border p-3"><div className="text-xs font-medium text-muted-foreground">{FIELD_LABELS[key] || key.split('_').join(' ')}</div><div className="mt-1 whitespace-pre-wrap text-sm">{value}</div></div>
                     ))}
                   </div>
                 </div>
