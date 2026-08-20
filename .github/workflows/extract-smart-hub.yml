@@ -1,0 +1,149 @@
+name: Extract Smart Hub
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/extract-smart-hub.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Smart-Hub
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout source repository (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: DyoneCacau/healtcare-modified
+          ref: main
+          path: source-healthcare
+
+      - name: Extract Smart Hub and local source dependencies
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re, shutil
+
+          repo = Path.cwd()
+          source = repo / 'source-healthcare'
+
+          seeds = []
+          for folder in [source/'src/pages/smart-hub', source/'src/components/smart-hub']:
+              seeds.extend(p for p in folder.rglob('*') if p.is_file())
+
+          # Resolve only local TS/TSX imports. This follows the dependency graph
+          # needed by Smart Hub without copying unrelated HealthCare modules wholesale.
+          import_re = re.compile(r'''(?:from\s*|import\s*\()\s*["']([^"']+)["']''')
+          extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.json']
+
+          def resolve_import(current: Path, spec: str):
+              if spec.startswith('@/'):
+                  base = source/'src'/spec[2:]
+              elif spec.startswith('.'):
+                  base = (current.parent/spec).resolve()
+              else:
+                  return None
+              candidates = []
+              for ext in extensions:
+                  candidates.append(Path(str(base) + ext))
+              for ext in ['.ts', '.tsx', '.js', '.jsx']:
+                  candidates.append(base/f'index{ext}')
+              for p in candidates:
+                  try:
+                      p.relative_to(source)
+                  except ValueError:
+                      continue
+                  if p.is_file():
+                      return p
+              return None
+
+          queue = list(seeds)
+          seen = set()
+          while queue:
+              file = queue.pop()
+              file = file.resolve()
+              if file in seen or not file.is_file():
+                  continue
+              seen.add(file)
+              if file.suffix.lower() not in {'.ts', '.tsx', '.js', '.jsx'}:
+                  continue
+              text = file.read_text(encoding='utf-8', errors='ignore')
+              for spec in import_re.findall(text):
+                  dep = resolve_import(file, spec)
+                  if dep and dep.resolve() not in seen:
+                      queue.append(dep)
+
+          # Copy dependency closure preserving original paths.
+          for file in sorted(seen):
+              rel = file.relative_to(source)
+              dest = repo/rel
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(file, dest)
+
+          # Project/build configuration. package.json may contain more packages than
+          # strictly necessary, but keeps dependency versions identical to source.
+          root_files = [
+              'package.json', 'package-lock.json', 'bun.lockb', 'pnpm-lock.yaml',
+              'vite.config.ts', 'vite.config.js', 'tsconfig.json', 'tsconfig.app.json',
+              'tsconfig.node.json', 'tailwind.config.ts', 'tailwind.config.js',
+              'postcss.config.js', 'postcss.config.cjs', 'components.json',
+              'eslint.config.js', 'eslint.config.mjs', 'index.html', '.gitignore',
+              '.env.example'
+          ]
+          for name in root_files:
+              src = source/name
+              if src.is_file():
+                  shutil.copy2(src, repo/name)
+
+          # Base CSS is shared by shadcn/Tailwind components used by Smart Hub.
+          for rel in ['src/index.css', 'src/vite-env.d.ts']:
+              src = source/rel
+              if src.is_file():
+                  (repo/rel).parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(src, repo/rel)
+
+          # Standalone bootstrap: no HealthCare business routes are included.
+          (repo/'src/App.tsx').write_text('''import { QueryClient, QueryClientProvider } from "@tanstack/react-query";\nimport { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";\nimport PublicSmartHub from "@/pages/smart-hub/PublicSmartHub";\nimport SmartHubDashboard from "@/pages/smart-hub/SmartHubDashboard";\nimport SmartHubEditor from "@/pages/smart-hub/SmartHubEditor";\nimport SmartHubTemplates from "@/pages/smart-hub/SmartHubTemplates";\nimport SmartHubButtons from "@/pages/smart-hub/SmartHubButtons";\nimport SmartHubAnalytics from "@/pages/smart-hub/SmartHubAnalytics";\nimport SmartHubSettings from "@/pages/smart-hub/SmartHubSettings";\nimport SmartHubDomain from "@/pages/smart-hub/SmartHubDomain";\nimport SmartHubPreview from "@/pages/smart-hub/SmartHubPreview";\nimport { AuthProvider } from "@/hooks/useAuth";\n\nconst queryClient = new QueryClient();\n\nexport default function App() {\n  return (\n    <QueryClientProvider client={queryClient}>\n      <AuthProvider>\n        <BrowserRouter>\n          <Routes>\n            <Route path="/" element={<Navigate to="/smart-hub" replace />} />\n            <Route path="/hub/:slug" element={<PublicSmartHub />} />\n            <Route path="/smart-hub" element={<SmartHubDashboard />} />\n            <Route path="/smart-hub/previa" element={<SmartHubPreview />} />\n            <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />\n            <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />\n            <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />\n            <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />\n            <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />\n            <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />\n          </Routes>\n        </BrowserRouter>\n      </AuthProvider>\n    </QueryClientProvider>\n  );\n}\n''', encoding='utf-8')
+
+          (repo/'src/main.tsx').write_text('''import React from "react";\nimport ReactDOM from "react-dom/client";\nimport App from "./App";\nimport "./index.css";\n\nReactDOM.createRoot(document.getElementById("root")!).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>,\n);\n''', encoding='utf-8')
+
+          # Remove checked-out source from the target working tree.
+          shutil.rmtree(source)
+
+          manifest = repo/'EXTRACTION_MANIFEST.md'
+          module_files = sorted(str(p.relative_to(repo)) for p in (repo/'src/pages/smart-hub').rglob('*') if p.is_file())
+          component_files = sorted(str(p.relative_to(repo)) for p in (repo/'src/components/smart-hub').rglob('*') if p.is_file())
+          manifest.write_text(
+              '# Smart Hub extraction manifest\n\n'
+              'Origem: `DyoneCacau/healtcare-modified` (`main`).\n\n'
+              'O repositório de origem foi usado somente para leitura. Nenhum arquivo foi alterado nele.\n\n'
+              f'- Páginas Smart Hub: {len(module_files)} arquivos\n'
+              f'- Componentes Smart Hub: {len(component_files)} arquivos\n'
+              f'- Total da dependência local copiada: {len(seen)} arquivos de `src/`\n\n'
+              'A dependência local foi calculada seguindo imports relativos e imports `@/` a partir das páginas e componentes Smart Hub.\n',
+              encoding='utf-8'
+          )
+          PY
+
+      - name: Commit extracted application
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- . ':!source-healthcare'
+          if git diff --cached --quiet; then
+            echo "No extraction changes found."
+            exit 0
+          fi
+          git commit -m "feat: extract Smart Hub from HealthCare"
+          git push origin main
