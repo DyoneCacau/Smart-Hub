@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 import PublicSmartHub from "@/pages/smart-hub/PublicSmartHub";
 import SmartHubDashboard from "@/pages/smart-hub/SmartHubDashboard";
 import SmartHubEditor from "@/pages/smart-hub/SmartHubEditor";
@@ -11,8 +12,11 @@ import SmartHubDomain from "@/pages/smart-hub/SmartHubDomain";
 import SmartHubPreview from "@/pages/smart-hub/SmartHubPreview";
 import Crm from "@/pages/Crm";
 import Integrations from "@/pages/Integrations";
+import Onboarding from "@/pages/Onboarding";
+import FunnelDashboard from "@/pages/FunnelDashboard";
 import { MarketingCrm, MarketingCampaigns, MarketingLandingPages, MarketingAnalytics } from "@/pages/marketing/MarketingPlaceholders";
 import { AuthProvider } from "@/hooks/useAuth";
+import { WorkspaceProvider } from "@/hooks/useWorkspace";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
 
 const queryClient = new QueryClient();
@@ -21,28 +25,35 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <SubscriptionProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Navigate to="/smart-hub" replace />} />
-              <Route path="/hub/:slug" element={<PublicSmartHub />} />
-              <Route path="/smart-hub" element={<SmartHubDashboard />} />
-              <Route path="/smart-hub/previa" element={<SmartHubPreview />} />
-              <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />
-              <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />
-              <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />
-              <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />
-              <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />
-              <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />
-              <Route path="/crm" element={<Crm />} />
-              <Route path="/integracoes" element={<Integrations />} />
-              <Route path="/marketing/crm" element={<MarketingCrm />} />
-              <Route path="/marketing/campanhas" element={<MarketingCampaigns />} />
-              <Route path="/marketing/landing-pages" element={<MarketingLandingPages />} />
-              <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
-            </Routes>
-          </BrowserRouter>
-        </SubscriptionProvider>
+        <WorkspaceProvider>
+          <SubscriptionProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Navigate to="/funil" replace />} />
+                <Route path="/onboarding" element={<Onboarding />} />
+                <Route path="/funil" element={<FunnelDashboard />} />
+
+                <Route path="/hub/:slug" element={<PublicSmartHub />} />
+                <Route path="/smart-hub" element={<SmartHubDashboard />} />
+                <Route path="/smart-hub/previa" element={<SmartHubPreview />} />
+                <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />
+                <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />
+                <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />
+                <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />
+                <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />
+                <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />
+
+                <Route path="/crm" element={<Crm />} />
+                <Route path="/integracoes" element={<Integrations />} />
+                <Route path="/marketing/crm" element={<MarketingCrm />} />
+                <Route path="/marketing/campanhas" element={<MarketingCampaigns />} />
+                <Route path="/marketing/landing-pages" element={<MarketingLandingPages />} />
+                <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+              </Routes>
+            </BrowserRouter>
+            <Toaster richColors position="top-right" />
+          </SubscriptionProvider>
+        </WorkspaceProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
