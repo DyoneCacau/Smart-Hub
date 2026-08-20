@@ -1,96 +1,66 @@
-import type { LeadSource } from '@/types/agenda';
-
-export type CrmLeadStage = 'new' | 'contact' | 'scheduled' | 'won' | 'lost';
+export interface CrmStage {
+  id: string;
+  workspaceId: string;
+  name: string;
+  position: number;
+  isWon: boolean;
+  isLost: boolean;
+}
 
 export interface CrmLead {
   id: string;
-  clinicId: string;
-  name: string;
-  cpf: string | null;
+  workspaceId: string;
+  stageId: string | null;
+  name: string | null;
   phone: string | null;
   email: string | null;
-  stage: CrmLeadStage;
-  leadSource: LeadSource | null;
-  referralName: string | null;
+  company: string | null;
   interest: string | null;
   estimatedValue: number | null;
-  nextFollowUp: string | null;
-  notes: string | null;
-  allergies: string[];
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  firstTouchSource: string | null;
+  firstTouchMedium: string | null;
+  firstTouchCampaign: string | null;
+  lastTouchSource: string | null;
+  lastTouchMedium: string | null;
+  lastTouchCampaign: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
   ownerUserId: string | null;
-  ownerName?: string | null;
-  patientId: string | null;
-  appointmentId: string | null;
-  lostReason: string | null;
-  /** Integração que trouxe o lead (null = criado no Kanban) */
   integrationId: string | null;
-  /** Id do lead no provedor de origem */
   externalLeadId: string | null;
+  visitorId: string | null;
+  status: string;
+  lostReason: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CrmLeadInput {
-  name?: string;
-  cpf?: string | null;
+  name?: string | null;
   phone?: string | null;
   email?: string | null;
-  stage?: CrmLeadStage;
-  lead_source?: LeadSource | null;
-  referral_name?: string | null;
+  company?: string | null;
   interest?: string | null;
   estimated_value?: number | null;
-  next_follow_up?: string | null;
-  notes?: string | null;
-  allergies?: string[];
+  stage_id?: string | null;
+  source?: string | null;
+  medium?: string | null;
+  campaign?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
   owner_user_id?: string | null;
-  patient_id?: string | null;
-  appointment_id?: string | null;
   lost_reason?: string | null;
+  notes?: string | null;
+  metadata?: Record<string, unknown>;
 }
-
-export const CRM_STAGES: {
-  id: CrmLeadStage;
-  label: string;
-  description: string;
-  tone: string;
-}[] = [
-  {
-    id: 'new',
-    label: 'Novo',
-    description: 'Lead captado, ainda sem contato',
-    tone: 'bg-sky-50 border-sky-200',
-  },
-  {
-    id: 'contact',
-    label: 'Em contato',
-    description: 'Follow-up em andamento',
-    tone: 'bg-amber-50 border-amber-200',
-  },
-  {
-    id: 'scheduled',
-    label: 'Agendado',
-    description: 'Consulta marcada na agenda',
-    tone: 'bg-violet-50 border-violet-200',
-  },
-  {
-    id: 'won',
-    label: 'Fechado',
-    description: 'Converteu em paciente/tratamento',
-    tone: 'bg-emerald-50 border-emerald-200',
-  },
-  {
-    id: 'lost',
-    label: 'Perdido',
-    description: 'Não avançou',
-    tone: 'bg-slate-50 border-slate-200',
-  },
-];
-
-export const CRM_STAGE_LABELS: Record<CrmLeadStage, string> = {
-  new: 'Novo',
-  contact: 'Em contato',
-  scheduled: 'Agendado',
-  won: 'Fechado',
-  lost: 'Perdido',
-};
