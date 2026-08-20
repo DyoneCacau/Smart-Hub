@@ -1,4 +1,4 @@
-name: Extract Smart Hub
+name: Extract Commercial Platform
 
 on:
   push:
@@ -15,19 +15,19 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Smart-Hub
+      - name: Checkout target repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Checkout source repository (read-only)
+      - name: Checkout HealthCare source (read-only)
         uses: actions/checkout@v4
         with:
           repository: DyoneCacau/healtcare-modified
           ref: main
           path: source-healthcare
 
-      - name: Extract Smart Hub and local source dependencies
+      - name: Extract Smart Hub, CRM, Marketing and Integrations
         shell: bash
         run: |
           python3 <<'PY'
@@ -38,26 +38,46 @@ jobs:
           source = repo / 'source-healthcare'
 
           seeds = []
-          for folder in [source/'src/pages/smart-hub', source/'src/components/smart-hub']:
-              seeds.extend(p for p in folder.rglob('*') if p.is_file())
 
-          # Resolve only local TS/TSX imports. This follows the dependency graph
-          # needed by Smart Hub without copying unrelated HealthCare modules wholesale.
+          # Complete module folders.
+          module_folders = [
+              'src/pages/smart-hub',
+              'src/components/smart-hub',
+              'src/components/crm',
+              'src/components/integrations',
+              'src/pages/marketing',
+              'src/components/marketing',
+          ]
+          for rel in module_folders:
+              folder = source / rel
+              if folder.is_dir():
+                  seeds.extend(p for p in folder.rglob('*') if p.is_file())
+
+          # Top-level entry pages for the commercial modules.
+          for rel in ['src/pages/Crm.tsx', 'src/pages/Integrations.tsx']:
+              file = source / rel
+              if file.is_file():
+                  seeds.append(file)
+
+          # Follow local imports recursively so hooks, repositories, types,
+          # UI components and services required by the modules are preserved.
           import_re = re.compile(r'''(?:from\s*|import\s*\()\s*["']([^"']+)["']''')
           extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.json']
 
           def resolve_import(current: Path, spec: str):
               if spec.startswith('@/'):
-                  base = source/'src'/spec[2:]
+                  base = source / 'src' / spec[2:]
               elif spec.startswith('.'):
-                  base = (current.parent/spec).resolve()
+                  base = (current.parent / spec).resolve()
               else:
                   return None
+
               candidates = []
               for ext in extensions:
                   candidates.append(Path(str(base) + ext))
               for ext in ['.ts', '.tsx', '.js', '.jsx']:
-                  candidates.append(base/f'index{ext}')
+                  candidates.append(base / f'index{ext}')
+
               for p in candidates:
                   try:
                       p.relative_to(source)
@@ -70,8 +90,7 @@ jobs:
           queue = list(seeds)
           seen = set()
           while queue:
-              file = queue.pop()
-              file = file.resolve()
+              file = queue.pop().resolve()
               if file in seen or not file.is_file():
                   continue
               seen.add(file)
@@ -83,15 +102,14 @@ jobs:
                   if dep and dep.resolve() not in seen:
                       queue.append(dep)
 
-          # Copy dependency closure preserving original paths.
           for file in sorted(seen):
               rel = file.relative_to(source)
-              dest = repo/rel
+              dest = repo / rel
               dest.parent.mkdir(parents=True, exist_ok=True)
               shutil.copy2(file, dest)
 
-          # Project/build configuration. package.json may contain more packages than
-          # strictly necessary, but keeps dependency versions identical to source.
+          # Keep the build/runtime versions aligned with the source while the
+          # extraction is still a compatibility snapshot.
           root_files = [
               'package.json', 'package-lock.json', 'bun.lockb', 'pnpm-lock.yaml',
               'vite.config.ts', 'vite.config.js', 'tsconfig.json', 'tsconfig.app.json',
@@ -101,41 +119,45 @@ jobs:
               '.env.example'
           ]
           for name in root_files:
-              src = source/name
+              src = source / name
               if src.is_file():
-                  shutil.copy2(src, repo/name)
+                  shutil.copy2(src, repo / name)
 
-          # Base CSS is shared by shadcn/Tailwind components used by Smart Hub.
           for rel in ['src/index.css', 'src/vite-env.d.ts']:
-              src = source/rel
+              src = source / rel
               if src.is_file():
-                  (repo/rel).parent.mkdir(parents=True, exist_ok=True)
-                  shutil.copy2(src, repo/rel)
+                  (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(src, repo / rel)
 
-          # Standalone bootstrap: no HealthCare business routes are included.
-          (repo/'src/App.tsx').write_text('''import { QueryClient, QueryClientProvider } from "@tanstack/react-query";\nimport { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";\nimport PublicSmartHub from "@/pages/smart-hub/PublicSmartHub";\nimport SmartHubDashboard from "@/pages/smart-hub/SmartHubDashboard";\nimport SmartHubEditor from "@/pages/smart-hub/SmartHubEditor";\nimport SmartHubTemplates from "@/pages/smart-hub/SmartHubTemplates";\nimport SmartHubButtons from "@/pages/smart-hub/SmartHubButtons";\nimport SmartHubAnalytics from "@/pages/smart-hub/SmartHubAnalytics";\nimport SmartHubSettings from "@/pages/smart-hub/SmartHubSettings";\nimport SmartHubDomain from "@/pages/smart-hub/SmartHubDomain";\nimport SmartHubPreview from "@/pages/smart-hub/SmartHubPreview";\nimport { AuthProvider } from "@/hooks/useAuth";\n\nconst queryClient = new QueryClient();\n\nexport default function App() {\n  return (\n    <QueryClientProvider client={queryClient}>\n      <AuthProvider>\n        <BrowserRouter>\n          <Routes>\n            <Route path="/" element={<Navigate to="/smart-hub" replace />} />\n            <Route path="/hub/:slug" element={<PublicSmartHub />} />\n            <Route path="/smart-hub" element={<SmartHubDashboard />} />\n            <Route path="/smart-hub/previa" element={<SmartHubPreview />} />\n            <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />\n            <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />\n            <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />\n            <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />\n            <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />\n            <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />\n          </Routes>\n        </BrowserRouter>\n      </AuthProvider>\n    </QueryClientProvider>\n  );\n}\n''', encoding='utf-8')
+          # Standalone router for the extracted commercial product.
+          (repo / 'src/App.tsx').write_text('''import { QueryClient, QueryClientProvider } from "@tanstack/react-query";\nimport { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";\nimport PublicSmartHub from "@/pages/smart-hub/PublicSmartHub";\nimport SmartHubDashboard from "@/pages/smart-hub/SmartHubDashboard";\nimport SmartHubEditor from "@/pages/smart-hub/SmartHubEditor";\nimport SmartHubTemplates from "@/pages/smart-hub/SmartHubTemplates";\nimport SmartHubButtons from "@/pages/smart-hub/SmartHubButtons";\nimport SmartHubAnalytics from "@/pages/smart-hub/SmartHubAnalytics";\nimport SmartHubSettings from "@/pages/smart-hub/SmartHubSettings";\nimport SmartHubDomain from "@/pages/smart-hub/SmartHubDomain";\nimport SmartHubPreview from "@/pages/smart-hub/SmartHubPreview";\nimport Crm from "@/pages/Crm";\nimport Integrations from "@/pages/Integrations";\nimport { MarketingCrm, MarketingCampaigns, MarketingLandingPages, MarketingAnalytics } from "@/pages/marketing/MarketingPlaceholders";\nimport { AuthProvider } from "@/hooks/useAuth";\nimport { SubscriptionProvider } from "@/hooks/useSubscription";\n\nconst queryClient = new QueryClient();\n\nexport default function App() {\n  return (\n    <QueryClientProvider client={queryClient}>\n      <AuthProvider>\n        <SubscriptionProvider>\n          <BrowserRouter>\n            <Routes>\n              <Route path="/" element={<Navigate to="/smart-hub" replace />} />\n              <Route path="/hub/:slug" element={<PublicSmartHub />} />\n              <Route path="/smart-hub" element={<SmartHubDashboard />} />\n              <Route path="/smart-hub/previa" element={<SmartHubPreview />} />\n              <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />\n              <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />\n              <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />\n              <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />\n              <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />\n              <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />\n              <Route path="/crm" element={<Crm />} />\n              <Route path="/integracoes" element={<Integrations />} />\n              <Route path="/marketing/crm" element={<MarketingCrm />} />\n              <Route path="/marketing/campanhas" element={<MarketingCampaigns />} />\n              <Route path="/marketing/landing-pages" element={<MarketingLandingPages />} />\n              <Route path="/marketing/analytics" element={<MarketingAnalytics />} />\n            </Routes>\n          </BrowserRouter>\n        </SubscriptionProvider>\n      </AuthProvider>\n    </QueryClientProvider>\n  );\n}\n''', encoding='utf-8')
 
-          (repo/'src/main.tsx').write_text('''import React from "react";\nimport ReactDOM from "react-dom/client";\nimport App from "./App";\nimport "./index.css";\n\nReactDOM.createRoot(document.getElementById("root")!).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>,\n);\n''', encoding='utf-8')
+          (repo / 'src/main.tsx').write_text('''import React from "react";\nimport ReactDOM from "react-dom/client";\nimport App from "./App";\nimport "./index.css";\n\nReactDOM.createRoot(document.getElementById("root")!).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>,\n);\n''', encoding='utf-8')
 
-          # Remove checked-out source from the target working tree.
           shutil.rmtree(source)
 
-          manifest = repo/'EXTRACTION_MANIFEST.md'
-          module_files = sorted(str(p.relative_to(repo)) for p in (repo/'src/pages/smart-hub').rglob('*') if p.is_file())
-          component_files = sorted(str(p.relative_to(repo)) for p in (repo/'src/components/smart-hub').rglob('*') if p.is_file())
+          def count_files(rel):
+              folder = repo / rel
+              return len([p for p in folder.rglob('*') if p.is_file()]) if folder.is_dir() else 0
+
+          manifest = repo / 'EXTRACTION_MANIFEST.md'
           manifest.write_text(
-              '# Smart Hub extraction manifest\n\n'
+              '# Commercial platform extraction manifest\n\n'
               'Origem: `DyoneCacau/healtcare-modified` (`main`).\n\n'
               'O repositório de origem foi usado somente para leitura. Nenhum arquivo foi alterado nele.\n\n'
-              f'- Páginas Smart Hub: {len(module_files)} arquivos\n'
-              f'- Componentes Smart Hub: {len(component_files)} arquivos\n'
-              f'- Total da dependência local copiada: {len(seen)} arquivos de `src/`\n\n'
-              'A dependência local foi calculada seguindo imports relativos e imports `@/` a partir das páginas e componentes Smart Hub.\n',
+              f'- Smart Hub pages: {count_files("src/pages/smart-hub")}\n'
+              f'- Smart Hub components: {count_files("src/components/smart-hub")}\n'
+              f'- CRM components: {count_files("src/components/crm")}\n'
+              f'- Integration components: {count_files("src/components/integrations")}\n'
+              f'- Marketing pages: {count_files("src/pages/marketing")}\n'
+              f'- Total local dependency closure: {len(seen)} arquivos de `src/`\n\n'
+              'A árvore de dependências segue imports relativos e `@/` dos quatro módulos.\n'
+              'Observação: no código de origem atual, Marketing contém placeholders para CRM, Campanhas, Landing Pages e Analytics; essas telas foram preservadas fielmente.\n',
               encoding='utf-8'
           )
           PY
 
-      - name: Commit extracted application
+      - name: Commit extracted commercial modules
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -145,5 +167,5 @@ jobs:
             echo "No extraction changes found."
             exit 0
           fi
-          git commit -m "feat: extract Smart Hub from HealthCare"
+          git commit -m "feat: extract CRM Marketing and Integrations from HealthCare"
           git push origin main
