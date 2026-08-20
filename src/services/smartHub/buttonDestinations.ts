@@ -31,9 +31,7 @@ export function buildDestinationUrl(
     case 'email': {
       const address = value.replace(/^mailto:/i, '');
       const base = `mailto:${address}`;
-      if (emailSubject?.trim()) {
-        return `${base}?subject=${encodeURIComponent(emailSubject.trim())}`;
-      }
+      if (emailSubject?.trim()) return `${base}?subject=${encodeURIComponent(emailSubject.trim())}`;
       return base;
     }
     case 'instagram':
@@ -48,6 +46,9 @@ export function buildDestinationUrl(
     case 'youtube':
       if (/youtube\.com|youtu\.be/i.test(value)) return ensureHttp(value);
       return `https://youtube.com/${value}`;
+    case 'form':
+    case 'internal':
+      return ensureHttp(value);
     case 'map':
     case 'site':
     case 'link':
@@ -60,28 +61,16 @@ export function buildDestinationUrl(
 }
 
 function ensureHttp(value: string): string {
-  if (/^https?:\/\//i.test(value) || value.startsWith('mailto:') || value.startsWith('tel:')) {
-    return value;
-  }
+  if (value.startsWith('/')) return value;
+  if (/^https?:\/\//i.test(value) || value.startsWith('mailto:') || value.startsWith('tel:')) return value;
   return `https://${value}`;
 }
 
-export function validateSocialDomain(
-  type: SmartHubButtonType | string,
-  url: string
-): string | null {
+export function validateSocialDomain(type: SmartHubButtonType | string, url: string): string | null {
   const href = url.toLowerCase();
-  if (type === 'instagram' && href && !/instagram\.com|^\@?[\w.]+$/.test(href)) {
-    return 'Informe um perfil ou link do Instagram.';
-  }
-  if (type === 'facebook' && href && !/facebook\.com|^\@?[\w.]+$/.test(href)) {
-    return 'Informe um perfil ou link do Facebook.';
-  }
-  if (type === 'tiktok' && href && !/tiktok\.com|^\@?[\w.]+$/.test(href)) {
-    return 'Informe um perfil ou link do TikTok.';
-  }
-  if (type === 'youtube' && href && !/youtube\.com|youtu\.be|^\@?[\w.]+$/.test(href)) {
-    return 'Informe um canal ou link do YouTube.';
-  }
+  if (type === 'instagram' && href && !/instagram\.com|^\@?[\w.]+$/.test(href)) return 'Informe um perfil ou link do Instagram.';
+  if (type === 'facebook' && href && !/facebook\.com|^\@?[\w.]+$/.test(href)) return 'Informe um perfil ou link do Facebook.';
+  if (type === 'tiktok' && href && !/tiktok\.com|^\@?[\w.]+$/.test(href)) return 'Informe um perfil ou link do TikTok.';
+  if (type === 'youtube' && href && !/youtube\.com|youtu\.be|^\@?[\w.]+$/.test(href)) return 'Informe um canal ou link do YouTube.';
   return null;
 }

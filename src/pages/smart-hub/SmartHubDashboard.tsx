@@ -17,13 +17,12 @@ import {
 import { SmartHubLayout, DashboardStatsCard, PublishWorkflowCard } from '@/components/smart-hub';
 import { useSmartHub } from '@/hooks/useSmartHub';
 import { useHubAnalytics } from '@/hooks/useHubAnalytics';
-import { useClinic } from '@/hooks/useClinic';
+import { useWorkspace } from '@/hooks/useWorkspace';
 import { generateSlugFromTitle } from '@/services/smartHub';
-import { getClinicDisplayName } from '@/lib/utils';
 import { SMART_HUB_STATUS_LABELS } from '@/types/smartHub';
 
 export default function SmartHubDashboard() {
-  const { clinic, clinicId, isLoading: clinicLoading } = useClinic();
+  const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
   const {
     hub,
     publicUrl,
@@ -41,20 +40,17 @@ export default function SmartHubDashboard() {
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
 
-  const clinicPublicName = useMemo(() => {
-    if (!clinic) return '';
-    return getClinicDisplayName(clinic) || clinic.name || '';
-  }, [clinic]);
+  const workspacePublicName = useMemo(() => workspace?.name || '', [workspace]);
 
   const openCreateDialog = () => {
-    const initialTitle = clinicPublicName || '';
+    const initialTitle = workspacePublicName || '';
     setTitle(initialTitle);
     setSlug(initialTitle ? generateSlugFromTitle(initialTitle) : '');
     setSlugTouched(false);
     setOpen(true);
   };
 
-  if (clinicLoading || isLoading) {
+  if (workspaceLoading || isLoading) {
     return (
       <SmartHubLayout title="Smart Hub" description="Central inteligente de conversão">
         <div className="flex justify-center py-20">
@@ -64,11 +60,11 @@ export default function SmartHubDashboard() {
     );
   }
 
-  if (!clinicId) {
+  if (!workspaceId) {
     return (
       <SmartHubLayout title="Smart Hub">
         <div className="rounded-lg border border-dashed p-12 text-center text-muted-foreground">
-          Selecione uma clínica no menu lateral para gerenciar o Smart Hub.
+          Selecione um workspace para gerenciar o Smart Hub.
         </div>
       </SmartHubLayout>
     );
@@ -78,7 +74,7 @@ export default function SmartHubDashboard() {
     return (
       <SmartHubLayout
         title="Smart Hub"
-        description="Crie a página pública da sua clínica"
+        description="Crie sua página pública de conversão"
         actions={
           <Button onClick={openCreateDialog}>
             <Plus className="mr-2 h-4 w-4" />
@@ -89,7 +85,7 @@ export default function SmartHubDashboard() {
         <div className="rounded-lg border border-dashed p-12 text-center">
           <h2 className="text-lg font-semibold">Nenhum Smart Hub configurado</h2>
           <p className="mt-2 text-muted-foreground">
-            Crie sua página pública personalizada para converter visitas em leads e agendamentos.
+            Crie uma página pública para concentrar links, captar leads e acompanhar conversões.
           </p>
           <Button className="mt-6" onClick={openCreateDialog}>
             Começar agora
@@ -101,12 +97,12 @@ export default function SmartHubDashboard() {
             <DialogHeader>
               <DialogTitle>Criar Smart Hub</DialogTitle>
               <DialogDescription>
-                Defina o nome público e o endereço da página (ex.: /hub/minha-clinica).
+                Defina o nome público e o endereço da página. Exemplo: /hub/dhsoft.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label htmlFor="title">Nome público da clínica</Label>
+                <Label htmlFor="title">Nome público</Label>
                 <Input
                   id="title"
                   value={title}
@@ -115,10 +111,10 @@ export default function SmartHubDashboard() {
                     setTitle(next);
                     if (!slugTouched) setSlug(generateSlugFromTitle(next));
                   }}
-                  placeholder="Clínica Sorriso"
+                  placeholder="Ex.: DHSoft"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Este nome aparece no topo da página pública. Não é o endereço da URL.
+                  Este nome aparece no topo da página pública.
                 </p>
               </div>
               <div className="space-y-2">
@@ -130,10 +126,10 @@ export default function SmartHubDashboard() {
                     setSlugTouched(true);
                     setSlug(e.target.value);
                   }}
-                  placeholder="clinica-sorriso"
+                  placeholder="dhsoft"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Apenas o caminho da URL. Pode editar sem alterar o nome público.
+                  Endereço público do Smart Hub. Exemplo: /hub/dhsoft.
                 </p>
                 <Button
                   type="button"
@@ -145,7 +141,7 @@ export default function SmartHubDashboard() {
                     setSlugTouched(true);
                   }}
                 >
-                  Gerar slug a partir do nome público
+                  Gerar slug a partir do nome
                 </Button>
               </div>
             </div>
@@ -181,7 +177,7 @@ export default function SmartHubDashboard() {
   return (
     <SmartHubLayout
       title="Smart Hub"
-      description="Central inteligente de conversão da clínica"
+      description="Central inteligente de conversão do workspace"
       actions={
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
@@ -241,16 +237,9 @@ export default function SmartHubDashboard() {
           <DashboardStatsCard label="Campanha principal" value={metrics?.mainCampaign ?? '—'} />
           <DashboardStatsCard
             label="Última visita"
-            value={
-              metrics?.lastVisitAt
-                ? new Date(metrics.lastVisitAt).toLocaleString('pt-BR')
-                : '—'
-            }
+            value={metrics?.lastVisitAt ? new Date(metrics.lastVisitAt).toLocaleString('pt-BR') : '—'}
           />
-          <DashboardStatsCard
-            label="Status"
-            value={metrics?.online ? 'Online' : SMART_HUB_STATUS_LABELS[hub.status]}
-          />
+          <DashboardStatsCard label="Status" value={metrics?.online ? 'Online' : SMART_HUB_STATUS_LABELS[hub.status]} />
         </div>
       )}
     </SmartHubLayout>

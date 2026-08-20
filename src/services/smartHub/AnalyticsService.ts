@@ -5,6 +5,7 @@ import {
   pageRepository,
   hubRepository,
 } from '@/repositories/smartHub';
+import { supabase } from '@/integrations/supabase/client';
 import type {
   ListQueryParams,
   PaginatedResult,
@@ -17,6 +18,66 @@ import type {
   SmartHubTemplate,
   SmartHubVisit,
 } from '@/types/smartHub';
+
+async function resolveWorkspaceIdFromHub(hubId: string): Promise<string | null> {
+  const { data, error } = await (supabase as any)
+    .from('smart_hubs')
+    .select('workspace_id,clinic_id')
+    .eq('id', hubId)
+    .maybeSingle();
+
+  if (error) {
+    // Ambientes em transição podem ainda não possuir workspace_id.
+    const { data: legacy } = await (supabase as any)
+      .from('smart_hubs')
+      .select('clinic_id')
+      .eq('id', hubId)
+      .maybeSingle();
+    return legacy?.clinic_id ?? null;
+  }
+
+  return data?.workspace_id ?? data?.clinic_id ?? null;
+}
+
+async function mirrorSmartHubEvent(
+  hubId: string,
+  eventName: 'smart_hub_visit' | 'click',
+  payload: Record<string, unknown> = {},
+  buttonId?: string | null,
+) {
+  try {
+    const workspaceId = await resolveWorkspaceIdFromHub(hubId);
+    if (!workspaceId) return;
+
+    const read = (key: string) => {
+      const value = payload[key];
+      return typeof value === 'string' && value.trim() ? value : null;
+    };
+
+    await (supabase as any).from('funnel_events').insert({
+      workspace_id: workspaceId,
+      event_name: eventName,
+      visitor_id: read('visitor_id'),
+      session_id: read('session_id'),
+      source: read('source') || read('utm_source') || 'smart_hub',
+      medium: read('medium') || read('utm_medium'),
+      campaign: read('campaign') || read('utm_campaign'),
+      utm_source: read('utm_source'),
+      utm_medium: read('utm_medium'),
+      utm_campaign: read('utm_campaign'),
+      utm_content: read('utm_content'),
+      utm_term: read('utm_term'),
+      properties: {
+        ...payload,
+        hub_id: hubId,
+        ...(buttonId ? { button_id: buttonId } : {}),
+      },
+    });
+  } catch (error) {
+    // O tracking central nunca deve impedir a experiência pública do Smart Hub.
+    console.warn('Unable to mirror Smart Hub event to funnel_events', error);
+  }
+}
 
 export const AnalyticsService = {
   listVisits(
@@ -52,16 +113,20 @@ export const AnalyticsService = {
     return analyticsRepository.getDashboardMetrics(hubId, clinicId, status, publicUrl);
   },
 
-  trackVisit(hubId: string, payload?: Record<string, unknown>): Promise<string> {
-    return analyticsRepository.trackVisit(hubId, payload);
+  async trackVisit(hubId: string, payload: Record<string, unknown> = {}): Promise<string> {
+    const result = await analyticsRepository.trackVisit(hubId, payload);
+    void mirrorSmartHubEvent(hubId, 'smart_hub_visit', payload);
+    return result;
   },
 
-  trackClick(
+  async trackClick(
     hubId: string,
     buttonId: string | null,
-    payload?: Record<string, unknown>
+    payload: Record<string, unknown> = {}
   ): Promise<string> {
-    return analyticsRepository.trackClick(hubId, buttonId, payload);
+    const result = await analyticsRepository.trackClick(hubId, buttonId, payload);
+    void mirrorSmartHubEvent(hubId, 'click', payload, buttonId);
+    return result;
   },
 };
 

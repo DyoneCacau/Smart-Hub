@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useClinic } from './useClinic';
+import { useWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 import { getProviderDefinition } from '@/lib/integrationProviders';
@@ -26,9 +26,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function normalizeIntegration(row: Record<string, unknown>): Integration {
+  const tenantId = String(row.workspace_id || row.clinic_id || '');
   return {
     id: String(row.id),
-    clinic_id: String(row.clinic_id),
+    clinic_id: tenantId,
     provider: row.provider as Integration['provider'],
     category: row.category as Integration['category'],
     name: String(row.name || ''),
@@ -46,59 +47,68 @@ function normalizeIntegration(row: Record<string, unknown>): Integration {
   };
 }
 
+async function loadIntegrations(workspaceId: string) {
+  const modern = await (supabase as any)
+    .from('integrations')
+    .select(`workspace_id,${INTEGRATION_SELECT}`)
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false });
+
+  if (!modern.error) return modern;
+
+  if (modern.error.code === '42703') {
+    return (supabase as any)
+      .from('integrations')
+      .select(INTEGRATION_SELECT)
+      .eq('clinic_id', workspaceId)
+      .order('created_at', { ascending: false });
+  }
+
+  return modern;
+}
+
 export function useIntegrations() {
-  const { clinicId } = useClinic();
+  const { workspaceId } = useWorkspace();
 
   const query = useQuery({
-    queryKey: [QUERY_KEY, clinicId],
+    queryKey: [QUERY_KEY, workspaceId],
     queryFn: async (): Promise<Integration[]> => {
-      if (!clinicId) return EMPTY_INTEGRATIONS;
+      if (!workspaceId) return EMPTY_INTEGRATIONS;
 
-      // Os tipos gerados são atualizados após executar PRODUCAO_25 e
-      // regenerar o schema; o cast mantém o módulo utilizável antes disso.
-      const { data, error } = await (supabase as any)
-        .from('integrations')
-        .select(INTEGRATION_SELECT)
-        .eq('clinic_id', clinicId)
-        .order('created_at', { ascending: false });
-
+      const { data, error } = await loadIntegrations(workspaceId);
       if (error) {
-        // Tabela ainda não criada no ambiente: módulo aparece vazio
         if (error.code === '42P01') return EMPTY_INTEGRATIONS;
         throw error;
       }
 
       return ((data || []) as Record<string, unknown>[]).map(normalizeIntegration);
     },
-    enabled: !!clinicId,
+    enabled: !!workspaceId,
     retry: false,
   });
 
   return {
     ...query,
     integrations: query.data ?? EMPTY_INTEGRATIONS,
-    clinicId,
+    workspaceId,
+    clinicId: workspaceId,
   };
 }
 
 export function useIntegrationMutations() {
-  const { clinicId } = useClinic();
+  const { workspaceId } = useWorkspace();
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: [QUERY_KEY, clinicId] });
+    queryClient.invalidateQueries({ queryKey: [QUERY_KEY, workspaceId] });
   };
 
-  /**
-   * Cria a conexão do tenant. Nenhuma credencial é gravada: o segredo do
-   * webhook é devolvido uma única vez para a clínica configurar no provedor.
-   */
   const createIntegration = useMutation({
     mutationFn: async (
       input: IntegrationInput,
     ): Promise<{ integration: Integration; webhookSecret: string | null }> => {
-      if (!clinicId) throw new Error('Selecione uma clínica');
+      if (!workspaceId) throw new Error('Selecione um workspace');
 
       const definition = getProviderDefinition(input.provider);
       if (!definition) throw new Error('Provedor não suportado');
@@ -106,8 +116,7 @@ export function useIntegrationMutations() {
       const wantsWebhook = definition.supportsInboundWebhook;
       const webhookSecret = wantsWebhook ? generateWebhookSecret() : null;
 
-      const payload = {
-        clinic_id: clinicId,
+      const basePayload = {
         provider: input.provider,
         category: definition.category,
         name: input.name.trim(),
@@ -121,15 +130,23 @@ export function useIntegrationMutations() {
         created_by: user?.id ?? null,
       };
 
-      const { data, error } = await (supabase as any)
+      let result = await (supabase as any)
         .from('integrations')
-        .insert(payload)
-        .select(INTEGRATION_SELECT)
+        .insert({ ...basePayload, workspace_id: workspaceId })
+        .select(`workspace_id,${INTEGRATION_SELECT}`)
         .single();
 
-      if (error) throw error;
+      if (result.error?.code === '42703') {
+        result = await (supabase as any)
+          .from('integrations')
+          .insert({ ...basePayload, clinic_id: workspaceId })
+          .select(INTEGRATION_SELECT)
+          .single();
+      }
+
+      if (result.error) throw result.error;
       return {
-        integration: normalizeIntegration(data as Record<string, unknown>),
+        integration: normalizeIntegration(result.data as Record<string, unknown>),
         webhookSecret,
       };
     },
@@ -137,13 +154,7 @@ export function useIntegrationMutations() {
       invalidate();
       toast.success('Integração criada. Conclua a configuração no provedor.');
     },
-    onError: (error: Error) => {
-      toast.error(
-        error.message.includes('integrations_clinic_id_provider_name_key')
-          ? 'Já existe uma integração com esse nome para este provedor'
-          : 'Erro ao criar integração',
-      );
-    },
+    onError: () => toast.error('Erro ao criar integração'),
   });
 
   const updateIntegration = useMutation({
@@ -152,8 +163,19 @@ export function useIntegrationMutations() {
         .from('integrations')
         .update(input)
         .eq('id', id)
-        .select(INTEGRATION_SELECT)
+        .select(`workspace_id,${INTEGRATION_SELECT}`)
         .single();
+
+      if (error && error.code === '42703') {
+        const legacy = await (supabase as any)
+          .from('integrations')
+          .update(input)
+          .eq('id', id)
+          .select(INTEGRATION_SELECT)
+          .single();
+        if (legacy.error) throw legacy.error;
+        return normalizeIntegration(legacy.data as Record<string, unknown>);
+      }
 
       if (error) throw error;
       return normalizeIntegration(data as Record<string, unknown>);
@@ -165,7 +187,6 @@ export function useIntegrationMutations() {
     onError: () => toast.error('Erro ao atualizar integração'),
   });
 
-  /** Gera novo segredo do webhook e invalida o anterior. */
   const rotateWebhookSecret = useMutation({
     mutationFn: async (id: string): Promise<string> => {
       const secret = generateWebhookSecret();
@@ -173,7 +194,6 @@ export function useIntegrationMutations() {
         .from('integrations')
         .update({ webhook_secret_hash: await hashSecret(secret) })
         .eq('id', id);
-
       if (error) throw error;
       return secret;
     },
