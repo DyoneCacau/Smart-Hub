@@ -1,308 +1,219 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useClinic } from './useClinic';
-import { useAuth } from './useAuth';
+import { useWorkspace } from '@/hooks/useWorkspace';
 import { toast } from 'sonner';
-import type { CrmLead, CrmLeadInput, CrmLeadStage } from '@/types/crm';
-import type { LeadSource } from '@/types/agenda';
+import type { CrmLead, CrmLeadInput, CrmStage } from '@/types/crm';
 
-type CrmLeadRow = {
-  id: string;
-  clinic_id: string;
-  name: string;
-  cpf: string | null;
-  phone: string | null;
-  email: string | null;
-  stage: CrmLeadStage;
-  lead_source: LeadSource | null;
-  referral_name: string | null;
-  interest: string | null;
-  estimated_value: number | null;
-  next_follow_up: string | null;
-  notes: string | null;
-  allergies: string[] | null;
-  owner_user_id: string | null;
-  patient_id: string | null;
-  appointment_id: string | null;
-  lost_reason: string | null;
-  /** Preenchido quando o lead veio de uma integração (PRODUCAO_26) */
-  integration_id?: string | null;
-  external_lead_id?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-/**
- * Colunas lidas pelo Kanban. `source_payload` fica de fora de propósito:
- * guarda o payload bruto da integração (pode ter centenas de KB por lead) e
- * duplica dado pessoal que o app não exibe. A auditoria da origem fica em
- * `webhook_logs` e na tela de Integrações.
- */
-const LEAD_COLUMNS = [
-  'id',
-  'clinic_id',
-  'name',
-  'cpf',
-  'phone',
-  'email',
-  'stage',
-  'lead_source',
-  'referral_name',
-  'interest',
-  'estimated_value',
-  'next_follow_up',
-  'notes',
-  'allergies',
-  'owner_user_id',
-  'patient_id',
-  'appointment_id',
-  'lost_reason',
-  'integration_id',
-  'external_lead_id',
-  'created_at',
-  'updated_at',
-].join(', ');
-
-/** Sem as colunas de origem: usado quando o PRODUCAO_26 ainda não rodou. */
-const LEAD_COLUMNS_LEGACY = LEAD_COLUMNS.split(', ')
-  .filter((column) => column !== 'integration_id' && column !== 'external_lead_id')
-  .join(', ');
-
-/** 42703 = undefined_column → PRODUCAO_26 pendente no ambiente */
-function isMissingColumn(error: { code?: string } | null): boolean {
-  return error?.code === '42703';
-}
-
-function mapRow(row: CrmLeadRow, ownerName?: string | null): CrmLead {
+function mapLead(row: any): CrmLead {
   return {
     id: row.id,
-    clinicId: row.clinic_id,
-    name: row.name,
-    cpf: row.cpf ?? null,
-    phone: row.phone,
-    email: row.email,
-    stage: row.stage,
-    leadSource: row.lead_source,
-    referralName: row.referral_name,
-    interest: row.interest,
+    workspaceId: row.workspace_id,
+    stageId: row.stage_id ?? null,
+    name: row.name ?? null,
+    phone: row.phone ?? null,
+    email: row.email ?? null,
+    company: row.company ?? null,
+    interest: row.interest ?? null,
     estimatedValue: row.estimated_value == null ? null : Number(row.estimated_value),
-    nextFollowUp: row.next_follow_up,
-    notes: row.notes,
-    allergies: row.allergies ?? [],
-    ownerUserId: row.owner_user_id,
-    ownerName: ownerName ?? null,
-    patientId: row.patient_id,
-    appointmentId: row.appointment_id,
-    lostReason: row.lost_reason,
+    source: row.source ?? null,
+    medium: row.medium ?? null,
+    campaign: row.campaign ?? null,
+    firstTouchSource: row.first_touch_source ?? null,
+    firstTouchMedium: row.first_touch_medium ?? null,
+    firstTouchCampaign: row.first_touch_campaign ?? null,
+    lastTouchSource: row.last_touch_source ?? null,
+    lastTouchMedium: row.last_touch_medium ?? null,
+    lastTouchCampaign: row.last_touch_campaign ?? null,
+    utmSource: row.utm_source ?? null,
+    utmMedium: row.utm_medium ?? null,
+    utmCampaign: row.utm_campaign ?? null,
+    utmContent: row.utm_content ?? null,
+    utmTerm: row.utm_term ?? null,
+    ownerUserId: row.owner_user_id ?? null,
     integrationId: row.integration_id ?? null,
     externalLeadId: row.external_lead_id ?? null,
+    visitorId: row.visitor_id ?? null,
+    status: row.status ?? 'open',
+    lostReason: row.lost_reason ?? null,
+    notes: row.notes ?? null,
+    metadata: row.metadata ?? {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-/**
- * Propaga o nome do lead para o paciente vinculado (crm_leads.patient_id).
- * Silencioso: falha aqui não pode impedir a atualização do lead.
- */
-async function syncNameToLinkedPatient(patientId: string, name: string) {
-  const { error } = await supabase
-    .from('patients')
-    .update({ name })
-    .eq('id', patientId);
-  if (error) {
-    console.error('Failed to sync lead name to linked patient', error);
-  }
+export function useCrmStages() {
+  const { workspaceId } = useWorkspace();
+  return useQuery({
+    queryKey: ['crm-stages', workspaceId],
+    enabled: !!workspaceId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('funnel_stages')
+        .select('id,workspace_id,name,position,is_won,is_lost')
+        .eq('workspace_id', workspaceId)
+        .order('position');
+      if (error) throw error;
+      return (data || []).map((row: any): CrmStage => ({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        name: row.name,
+        position: row.position,
+        isWon: row.is_won,
+        isLost: row.is_lost,
+      }));
+    },
+  });
 }
 
 export function useCrmLeads() {
-  const { clinicId } = useClinic();
-
+  const { workspaceId } = useWorkspace();
   return useQuery({
-    queryKey: ['crm-leads', clinicId],
+    queryKey: ['crm-leads', workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
-      if (!clinicId) return [] as CrmLead[];
-
-      const load = (columns: string) =>
-        supabase
-          .from('crm_leads' as any)
-          .select(columns)
-          .eq('clinic_id', clinicId)
-          .order('updated_at', { ascending: false });
-
-      let { data, error } = await load(LEAD_COLUMNS);
-      if (error && isMissingColumn(error)) {
-        ({ data, error } = await load(LEAD_COLUMNS_LEGACY));
-      }
-
-      if (error) {
-        if (error.code === '42P01' || error.message?.includes('crm_leads')) {
-          return [] as CrmLead[];
-        }
-        throw error;
-      }
-
-      const rows = (data || []) as unknown as CrmLeadRow[];
-      const ownerIds = Array.from(
-        new Set(rows.map((r) => r.owner_user_id).filter(Boolean) as string[]),
-      );
-
-      let nameMap = new Map<string, string>();
-      if (ownerIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, name')
-          .in('user_id', ownerIds);
-        nameMap = new Map(
-          (profiles || []).map((p: { user_id: string; name: string | null }) => [
-            p.user_id,
-            p.name || 'Responsável',
-          ]),
-        );
-      }
-
-      return rows.map((row) =>
-        mapRow(row, row.owner_user_id ? nameMap.get(row.owner_user_id) : null),
-      );
+      const { data, error } = await (supabase as any)
+        .from('leads')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapLead);
     },
-    enabled: !!clinicId,
   });
 }
 
 export function useCrmLeadMutations() {
-  const { clinicId } = useClinic();
-  const { user } = useAuth();
+  const { workspaceId } = useWorkspace();
   const queryClient = useQueryClient();
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['crm-leads'] });
+    queryClient.invalidateQueries({ queryKey: ['crm-leads', workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['funnel-leads', workspaceId] });
   };
 
   const createLead = useMutation({
     mutationFn: async (input: CrmLeadInput) => {
-      if (!clinicId || !user?.id) throw new Error('Clínica ou usuário não identificado');
-      if (!input.name?.trim()) throw new Error('Nome do lead é obrigatório');
+      if (!workspaceId) throw new Error('Selecione um workspace');
+      if (!input.name?.trim() && !input.phone?.trim() && !input.email?.trim()) {
+        throw new Error('Informe ao menos nome, telefone ou e-mail');
+      }
 
-      const { data, error } = await supabase
-        .from('crm_leads' as any)
-        .insert({
-          clinic_id: clinicId,
-          name: input.name.trim(),
-          cpf: input.cpf?.trim() || null,
-          phone: input.phone?.trim() || null,
-          email: input.email?.trim() || null,
-          stage: input.stage || 'new',
-          lead_source: input.lead_source ?? null,
-          referral_name: input.referral_name?.trim() || null,
-          interest: input.interest?.trim() || null,
-          estimated_value: input.estimated_value ?? null,
-          next_follow_up: input.next_follow_up || null,
-          notes: input.notes?.trim() || null,
-          allergies: input.allergies ?? [],
-          owner_user_id: input.owner_user_id || user.id,
-          patient_id: input.patient_id ?? null,
-          lost_reason: input.lost_reason?.trim() || null,
-          created_by: user.id,
-        })
-        .select(LEAD_COLUMNS_LEGACY)
-        .single();
-
+      const { data, error } = await (supabase as any).rpc('ingest_lead', {
+        p_workspace_id: workspaceId,
+        p_name: input.name?.trim() || null,
+        p_phone: input.phone?.trim() || null,
+        p_email: input.email?.trim() || null,
+        p_source: input.source || 'manual',
+        p_medium: input.medium || null,
+        p_campaign: input.campaign || null,
+        p_utm_source: input.utm_source || null,
+        p_utm_medium: input.utm_medium || null,
+        p_utm_campaign: input.utm_campaign || null,
+        p_utm_content: input.utm_content || null,
+        p_utm_term: input.utm_term || null,
+        p_integration_id: null,
+        p_external_lead_id: null,
+        p_visitor_id: null,
+        p_metadata: input.metadata || {},
+      });
       if (error) throw error;
-      return mapRow(data as unknown as CrmLeadRow);
+
+      if (input.company || input.interest || input.estimated_value || input.notes || input.stage_id) {
+        const updates: Record<string, unknown> = {};
+        if (input.company !== undefined) updates.company = input.company || null;
+        if (input.interest !== undefined) updates.interest = input.interest || null;
+        if (input.estimated_value !== undefined) updates.estimated_value = input.estimated_value;
+        if (input.notes !== undefined) updates.notes = input.notes || null;
+        if (input.stage_id !== undefined) updates.stage_id = input.stage_id;
+        const { data: updated, error: updateError } = await (supabase as any)
+          .from('leads')
+          .update(updates)
+          .eq('id', data.id)
+          .select('*')
+          .single();
+        if (updateError) throw updateError;
+        return mapLead(updated);
+      }
+
+      return mapLead(data);
     },
     onSuccess: () => {
       invalidate();
-      toast.success('Lead criado no CRM');
+      toast.success('Lead adicionado ao funil');
     },
-    onError: (err: { message?: string }) => {
-      toast.error(err.message || 'Erro ao criar lead. Execute o SQL PRODUCAO_14 no Supabase.');
-    },
+    onError: (error: Error) => toast.error(error.message || 'Erro ao criar lead'),
   });
 
   const updateLead = useMutation({
     mutationFn: async ({ id, ...input }: CrmLeadInput & { id: string }) => {
-      const payload: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
-      };
-      if (input.name != null) payload.name = input.name.trim();
-      if (input.cpf !== undefined) payload.cpf = input.cpf?.trim() || null;
+      const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (input.name !== undefined) payload.name = input.name?.trim() || null;
       if (input.phone !== undefined) payload.phone = input.phone?.trim() || null;
       if (input.email !== undefined) payload.email = input.email?.trim() || null;
-      if (input.stage !== undefined) payload.stage = input.stage;
-      if (input.lead_source !== undefined) payload.lead_source = input.lead_source;
-      if (input.referral_name !== undefined) payload.referral_name = input.referral_name?.trim() || null;
+      if (input.company !== undefined) payload.company = input.company?.trim() || null;
       if (input.interest !== undefined) payload.interest = input.interest?.trim() || null;
       if (input.estimated_value !== undefined) payload.estimated_value = input.estimated_value;
-      if (input.next_follow_up !== undefined) payload.next_follow_up = input.next_follow_up || null;
-      if (input.notes !== undefined) payload.notes = input.notes?.trim() || null;
-      if (input.allergies !== undefined) payload.allergies = input.allergies;
+      if (input.stage_id !== undefined) payload.stage_id = input.stage_id;
+      if (input.source !== undefined) payload.source = input.source;
+      if (input.medium !== undefined) payload.medium = input.medium;
+      if (input.campaign !== undefined) payload.campaign = input.campaign;
       if (input.owner_user_id !== undefined) payload.owner_user_id = input.owner_user_id;
-      if (input.patient_id !== undefined) payload.patient_id = input.patient_id;
-      if (input.appointment_id !== undefined) payload.appointment_id = input.appointment_id;
-      if (input.lost_reason !== undefined) payload.lost_reason = input.lost_reason?.trim() || null;
+      if (input.lost_reason !== undefined) payload.lost_reason = input.lost_reason;
+      if (input.notes !== undefined) payload.notes = input.notes;
+      if (input.metadata !== undefined) payload.metadata = input.metadata;
 
-      const { data, error } = await supabase
-        .from('crm_leads' as any)
+      const { data, error } = await (supabase as any)
+        .from('leads')
         .update(payload)
         .eq('id', id)
-        .select(LEAD_COLUMNS_LEGACY)
+        .select('*')
         .single();
-
       if (error) throw error;
-      const updated = mapRow(data as unknown as CrmLeadRow);
-
-      // Sincroniza o nome de volta para o paciente vinculado (se houver)
-      if (typeof payload.name === 'string' && updated.patientId) {
-        await syncNameToLinkedPatient(updated.patientId, payload.name);
-      }
-
-      return updated;
+      return mapLead(data);
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Lead atualizado');
-    },
-    onError: (err: { message?: string }) => {
-      toast.error(err.message || 'Erro ao atualizar lead');
-    },
+    onSuccess: invalidate,
+    onError: () => toast.error('Erro ao atualizar lead'),
   });
 
   const moveLeadStage = useMutation({
-    mutationFn: async ({ id, stage, lostReason }: { id: string; stage: CrmLeadStage; lostReason?: string }) => {
-      const payload: Record<string, unknown> = {
-        stage,
-        updated_at: new Date().toISOString(),
-      };
-      if (stage === 'lost') {
-        payload.lost_reason = lostReason?.trim() || null;
-      } else {
-        payload.lost_reason = null;
-      }
+    mutationFn: async ({ id, stageId }: { id: string; stageId: string }) => {
+      const { data: stage, error: stageError } = await (supabase as any)
+        .from('funnel_stages')
+        .select('is_won,is_lost')
+        .eq('id', stageId)
+        .single();
+      if (stageError) throw stageError;
 
-      const { error } = await supabase
-        .from('crm_leads' as any)
-        .update(payload)
+      const { error } = await (supabase as any)
+        .from('leads')
+        .update({
+          stage_id: stageId,
+          status: stage.is_won ? 'won' : stage.is_lost ? 'lost' : 'open',
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', id);
-
       if (error) throw error;
-      return { id, stage };
+
+      if (workspaceId) {
+        await (supabase as any).from('funnel_events').insert({
+          workspace_id: workspaceId,
+          event_name: 'crm_stage_changed',
+          lead_id: id,
+          properties: { stage_id: stageId },
+        });
+      }
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Lead movido de etapa');
-    },
+    onSuccess: invalidate,
     onError: () => toast.error('Erro ao mover lead'),
   });
 
   const deleteLead = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('crm_leads' as any).delete().eq('id', id);
+      const { error } = await (supabase as any).from('leads').delete().eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Lead removido');
-    },
+    onSuccess: invalidate,
     onError: () => toast.error('Erro ao remover lead'),
   });
 
