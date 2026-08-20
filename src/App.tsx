@@ -10,6 +10,8 @@ import SmartHubAnalytics from '@/pages/smart-hub/SmartHubAnalytics';
 import SmartHubSettings from '@/pages/smart-hub/SmartHubSettings';
 import SmartHubDomain from '@/pages/smart-hub/SmartHubDomain';
 import SmartHubPreview from '@/pages/smart-hub/SmartHubPreview';
+import PublicCaptureForm from '@/pages/capture/PublicCaptureForm';
+import CaptureForms from '@/pages/capture/CaptureForms';
 import Crm from '@/pages/Crm';
 import Integrations from '@/pages/Integrations';
 import Onboarding from '@/pages/Onboarding';
@@ -34,12 +36,14 @@ export default function App() {
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/hub/:slug" element={<PublicSmartHub />} />
+                <Route path="/f/:slug" element={<PublicCaptureForm />} />
 
                 <Route element={<ProtectedRoute />}>
                   <Route path="/onboarding" element={<Onboarding />} />
                   <Route element={<AppShell />}>
                     <Route path="/" element={<Navigate to="/funil" replace />} />
                     <Route path="/funil" element={<FunnelDashboard />} />
+                    <Route path="/captacao/formularios" element={<CaptureForms />} />
                     <Route path="/smart-hub" element={<SmartHubDashboard />} />
                     <Route path="/smart-hub/previa" element={<SmartHubPreview />} />
                     <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />
