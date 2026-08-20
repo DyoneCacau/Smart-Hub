@@ -1,0 +1,166 @@
+name: Extract Commercial Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/extract-commercial-backend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract-backend:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout HealthCare source (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: DyoneCacau/healtcare-modified
+          ref: main
+          path: source-healthcare
+
+      - name: Extract backend dependencies used by commercial modules
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re, shutil, json
+
+          repo = Path.cwd()
+          source = repo / 'source-healthcare'
+          target_src = repo / 'src'
+          source_supabase = source / 'supabase'
+          target_supabase = repo / 'supabase'
+
+          # Discover Edge Functions, RPCs and tables referenced by the frontend
+          # that was already extracted into this repository.
+          invoke_re = re.compile(r"functions\.invoke\(\s*['\"]([^'\"]+)['\"]")
+          rpc_re = re.compile(r"\.rpc\(\s*['\"]([^'\"]+)['\"]")
+          table_re = re.compile(r"\.from\(\s*['\"]([^'\"]+)['\"]")
+
+          edge_functions = set()
+          rpc_names = set()
+          table_names = set()
+
+          for file in target_src.rglob('*'):
+              if not file.is_file() or file.suffix.lower() not in {'.ts', '.tsx', '.js', '.jsx'}:
+                  continue
+              text = file.read_text(encoding='utf-8', errors='ignore')
+              edge_functions.update(invoke_re.findall(text))
+              rpc_names.update(rpc_re.findall(text))
+              table_names.update(table_re.findall(text))
+
+          # Dynamic calls hidden behind constants/repositories plus known core
+          # functions of the extracted product.
+          edge_functions.update({
+              'smart-hub-booking',
+              'smart-hub-capture',
+              'meta-oauth',
+          })
+
+          copied_functions = []
+          functions_root = source_supabase / 'functions'
+          if functions_root.is_dir():
+              shared = functions_root / '_shared'
+              if shared.is_dir():
+                  dest = target_supabase / 'functions' / '_shared'
+                  if dest.exists(): shutil.rmtree(dest)
+                  shutil.copytree(shared, dest)
+
+              # Also detect relevant server functions by their implementation
+              # referencing commercial tables/concepts, not only direct invoke calls.
+              commercial_markers = (
+                  'smart_hub', 'crm_lead', 'integrations', 'integration_logs',
+                  'automation_flow', 'api_token', 'meta_', 'lead_source',
+              )
+              for fn_dir in functions_root.iterdir():
+                  if not fn_dir.is_dir() or fn_dir.name == '_shared':
+                      continue
+                  relevant = fn_dir.name in edge_functions
+                  if not relevant:
+                      combined = ''
+                      for f in fn_dir.rglob('*'):
+                          if f.is_file() and f.suffix.lower() in {'.ts', '.js', '.json'}:
+                              combined += '\n' + f.read_text(encoding='utf-8', errors='ignore').lower()
+                      relevant = any(marker in combined for marker in commercial_markers)
+                  if relevant:
+                      dest = target_supabase / 'functions' / fn_dir.name
+                      if dest.exists(): shutil.rmtree(dest)
+                      shutil.copytree(fn_dir, dest)
+                      copied_functions.append(fn_dir.name)
+
+          # SQL cannot be resolved through TypeScript imports. Select the source SQL
+          # containing the RPC/table identifiers used by the commercial modules,
+          # plus strong domain markers. Preserve original relative paths.
+          sql_terms = {x.lower() for x in rpc_names | table_names if x}
+          sql_terms.update({
+              'smart_hub', 'smart-hub', 'crm_lead', 'crm_leads',
+              'integration', 'integrations', 'integration_logs',
+              'automation_flow', 'api_token', 'meta_', 'lead_api',
+          })
+
+          copied_sql = []
+          if source_supabase.is_dir():
+              for sql in source_supabase.rglob('*.sql'):
+                  text = sql.read_text(encoding='utf-8', errors='ignore').lower()
+                  if not any(term in text for term in sql_terms):
+                      continue
+                  rel = sql.relative_to(source)
+                  dest = repo / rel
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(sql, dest)
+                  copied_sql.append(str(rel))
+
+          # Supabase config is useful for local/dev deployment, but no .env or secrets
+          # are copied from the source repository.
+          for rel in ['supabase/config.toml', 'supabase/functions/README.md']:
+              src = source / rel
+              if src.is_file():
+                  dest = repo / rel
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(src, dest)
+
+          manifest = {
+              'source': 'DyoneCacau/healtcare-modified@main',
+              'source_mode': 'read-only',
+              'edge_functions_referenced': sorted(edge_functions),
+              'edge_functions_copied': sorted(copied_functions),
+              'rpc_names_detected': sorted(rpc_names),
+              'table_names_detected': sorted(table_names),
+              'sql_files_copied': sorted(copied_sql),
+              'note': 'Compatibility snapshot. HealthCare-specific tenant/clinic concepts still require refactoring before independent production deployment.'
+          }
+          (repo / 'BACKEND_EXTRACTION_MANIFEST.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8'
+          )
+
+          shutil.rmtree(source)
+          print(json.dumps({
+              'functions': len(copied_functions),
+              'sql_files': len(copied_sql),
+              'rpc_names': len(rpc_names),
+              'tables': len(table_names),
+          }, indent=2))
+          PY
+
+      - name: Commit extracted backend
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- supabase BACKEND_EXTRACTION_MANIFEST.json
+          if git diff --cached --quiet; then
+            echo "No backend extraction changes found."
+            exit 0
+          fi
+          git commit -m "feat: extract commercial Supabase backend from HealthCare"
+          git push origin main
