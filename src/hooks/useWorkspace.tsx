@@ -7,6 +7,7 @@ interface Workspace {
   id: string;
   name: string;
   segment: string;
+  objective: string;
   entity_label: string;
   conversion_label: string;
 }
@@ -33,7 +34,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('workspace_users')
-        .select('workspace:workspaces(id,name,segment,entity_label,conversion_label)')
+        .select('workspace:workspaces(id,name,segment,objective,entity_label,conversion_label)')
         .eq('user_id', user!.id);
       if (error) throw error;
       return (data || [])
