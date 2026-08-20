@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { BarChart3, Cable, ContactRound, LayoutDashboard, Link2, LogOut, Megaphone } from 'lucide-react';
+import { BarChart3, Cable, ContactRound, FileText, LayoutDashboard, Link2, LogOut, Megaphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 const NAV_ITEMS = [
   { to: '/funil', label: 'Funil', icon: LayoutDashboard },
   { to: '/crm', label: 'CRM', icon: ContactRound },
+  { to: '/captacao/formularios', label: 'Formulários', icon: FileText },
   { to: '/smart-hub', label: 'Smart Hub', icon: Link2 },
   { to: '/marketing/campanhas', label: 'Marketing', icon: Megaphone },
   { to: '/integracoes', label: 'Integrações', icon: Cable },
