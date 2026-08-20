@@ -20,6 +20,7 @@ import { AuthProvider } from '@/hooks/useAuth';
 import { WorkspaceProvider } from '@/hooks/useWorkspace';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { AppShell } from '@/components/layout/AppShell';
 
 const queryClient = new QueryClient();
 
@@ -35,23 +36,25 @@ export default function App() {
                 <Route path="/hub/:slug" element={<PublicSmartHub />} />
 
                 <Route element={<ProtectedRoute />}>
-                  <Route path="/" element={<Navigate to="/funil" replace />} />
                   <Route path="/onboarding" element={<Onboarding />} />
-                  <Route path="/funil" element={<FunnelDashboard />} />
-                  <Route path="/smart-hub" element={<SmartHubDashboard />} />
-                  <Route path="/smart-hub/previa" element={<SmartHubPreview />} />
-                  <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />
-                  <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />
-                  <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />
-                  <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />
-                  <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />
-                  <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />
-                  <Route path="/crm" element={<Crm />} />
-                  <Route path="/integracoes" element={<Integrations />} />
-                  <Route path="/marketing/crm" element={<MarketingCrm />} />
-                  <Route path="/marketing/campanhas" element={<MarketingCampaigns />} />
-                  <Route path="/marketing/landing-pages" element={<MarketingLandingPages />} />
-                  <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+                  <Route element={<AppShell />}>
+                    <Route path="/" element={<Navigate to="/funil" replace />} />
+                    <Route path="/funil" element={<FunnelDashboard />} />
+                    <Route path="/smart-hub" element={<SmartHubDashboard />} />
+                    <Route path="/smart-hub/previa" element={<SmartHubPreview />} />
+                    <Route path="/smart-hub/paginas" element={<SmartHubEditor />} />
+                    <Route path="/smart-hub/templates" element={<SmartHubTemplates />} />
+                    <Route path="/smart-hub/botoes" element={<SmartHubButtons />} />
+                    <Route path="/smart-hub/analytics" element={<SmartHubAnalytics />} />
+                    <Route path="/smart-hub/configuracoes" element={<SmartHubSettings />} />
+                    <Route path="/smart-hub/dominio" element={<SmartHubDomain />} />
+                    <Route path="/crm" element={<Crm />} />
+                    <Route path="/integracoes" element={<Integrations />} />
+                    <Route path="/marketing/crm" element={<MarketingCrm />} />
+                    <Route path="/marketing/campanhas" element={<MarketingCampaigns />} />
+                    <Route path="/marketing/landing-pages" element={<MarketingLandingPages />} />
+                    <Route path="/marketing/analytics" element={<MarketingAnalytics />} />
+                  </Route>
                 </Route>
               </Routes>
             </BrowserRouter>
