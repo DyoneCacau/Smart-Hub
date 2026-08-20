@@ -1,3 +1,5 @@
+export type CrmLeadStage = string;
+
 export interface CrmStage {
   id: string;
   workspaceId: string;
@@ -41,6 +43,16 @@ export interface CrmLead {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+
+  /** Campos legados opcionais mantidos apenas durante a migração dos componentes antigos. */
+  leadSource?: string | null;
+  clinicId?: string;
+  referralName?: string | null;
+  nextFollowUp?: string | null;
+  allergies?: string[];
+  patientId?: string | null;
+  appointmentId?: string | null;
+  ownerName?: string | null;
 }
 
 export interface CrmLeadInput {
@@ -64,3 +76,17 @@ export interface CrmLeadInput {
   notes?: string | null;
   metadata?: Record<string, unknown>;
 }
+
+/** Compatibilidade temporária para componentes antigos ainda presentes no snapshot. */
+export const CRM_STAGES = [
+  { id: 'new', label: 'Novo', description: 'Lead captado', tone: '' },
+  { id: 'contact', label: 'Contato', description: 'Contato em andamento', tone: '' },
+  { id: 'qualified', label: 'Qualificado', description: 'Lead qualificado', tone: '' },
+  { id: 'opportunity', label: 'Oportunidade', description: 'Oportunidade ativa', tone: '' },
+  { id: 'won', label: 'Fechado', description: 'Conversão concluída', tone: '' },
+  { id: 'lost', label: 'Perdido', description: 'Oportunidade perdida', tone: '' },
+] as const;
+
+export const CRM_STAGE_LABELS: Record<string, string> = Object.fromEntries(
+  CRM_STAGES.map((stage) => [stage.id, stage.label]),
+);
