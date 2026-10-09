@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Loader2,
+  UserRound,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { formatCPF, isValidCPF } from '@/lib/patientFormat';
 import {
   AnalyticsService,
   BOOKING_INITIAL_WINDOW_DAYS,
@@ -46,6 +55,14 @@ type WizardStep =
   | 'review'
   | 'done'
   | 'disabled';
+
+const FLOW_STEPS: WizardStep[] = ['procedure', 'professional', 'slots', 'patient', 'review'];
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function formatBirthDate(ymd: string): string {
+  const [y, m, d] = ymd.split('-');
+  return y && m && d ? `${d}/${m}/${y}` : ymd;
+}
 
 interface HubBookingWizardProps {
   hub: SmartHub;
@@ -106,6 +123,9 @@ export function HubBookingWizard({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [insurance, setInsurance] = useState('');
   const [notes, setNotes] = useState('');
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
@@ -147,6 +167,9 @@ export function HubBookingWizard({
     setName('');
     setPhone('');
     setEmail('');
+    setCpf('');
+    setBirthDate('');
+    setInsurance('');
     setNotes('');
     setPrivacyAccepted(false);
     setFieldError(null);
@@ -230,11 +253,14 @@ export function HubBookingWizard({
     void loadAvailability(procedure.id, professional.id, windowFrom, windowTo);
   }, [open, step, procedure, professional, windowFrom, windowTo, loadAvailability]);
 
+  useEffect(() => {
+    if (open) return;
+    const timer = window.setTimeout(resetFlow, 250);
+    return () => window.clearTimeout(timer);
+  }, [open, resetFlow]);
+
   const handleClose = (next: boolean) => {
-    if (!next) {
-      if (submitting) return;
-      resetFlow();
-    }
+    if (!next && submitting) return;
     onOpenChange(next);
   };
 
@@ -299,12 +325,24 @@ export function HubBookingWizard({
   };
 
   const validatePatient = (): boolean => {
-    if (!name.trim()) {
-      setFieldError('Informe seu nome.');
+    if (name.trim().split(/\s+/).length < 2) {
+      setFieldError('Informe seu nome completo.');
       return false;
     }
     if (!isPhoneVisuallyValid(phone)) {
       setFieldError('Informe um telefone válido com DDD.');
+      return false;
+    }
+    if (!isValidCPF(cpf)) {
+      setFieldError('Informe um CPF válido.');
+      return false;
+    }
+    if (!birthDate || birthDate > todayYmdLocal() || birthDate < '1900-01-01') {
+      setFieldError('Informe uma data de nascimento válida.');
+      return false;
+    }
+    if (email.trim() && !EMAIL_PATTERN.test(email.trim())) {
+      setFieldError('Informe um e-mail válido ou deixe em branco.');
       return false;
     }
     if (!privacyAccepted) {
@@ -344,6 +382,9 @@ export function HubBookingWizard({
         name: name.trim(),
         phone: digitsOnlyPhone(phone),
         email: email.trim() || undefined,
+        cpf,
+        birth_date: birthDate,
+        insurance: insurance.trim() || undefined,
       },
     });
 
@@ -375,7 +416,7 @@ export function HubBookingWizard({
     procedure: 'Escolha o procedimento',
     professional: 'Escolha o profissional',
     slots: 'Escolha data e horário',
-    patient: 'Seus dados',
+    patient: 'Dados do paciente',
     review: 'Revise e confirme',
     done: 'Agendamento confirmado',
     disabled: 'Agendamento indisponível',
@@ -387,24 +428,29 @@ export function HubBookingWizard({
     step === 'patient' ||
     step === 'review';
 
+  const stepIndex = FLOW_STEPS.indexOf(step);
+  const showSummary = Boolean(procedure) && stepIndex > 0;
+
   return (
-    <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent
-        side="bottom"
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent
         className={cn(
-          'mx-auto flex max-h-[92vh] w-full max-w-lg flex-col gap-0 overflow-hidden rounded-t-2xl p-0 sm:max-w-lg',
+          'flex max-h-[min(90vh,100dvh)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:rounded-2xl',
           className
         )}
         aria-describedby="booking-wizard-desc"
+        onInteractOutside={(e) => {
+          if (submitting || stepIndex > 0) e.preventDefault();
+        }}
       >
-        <SheetHeader className="border-b px-4 py-4 text-left">
-          <div className="flex items-start gap-2">
+        <DialogHeader className="space-y-0 border-b px-5 pb-4 pt-5 text-left">
+          <div className="flex items-start gap-2 pr-6">
             {canGoBack ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="mt-0.5 shrink-0"
+                className="-ml-2 h-8 w-8 shrink-0"
                 onClick={goBack}
                 disabled={submitting}
                 aria-label="Voltar"
@@ -413,15 +459,54 @@ export function HubBookingWizard({
               </Button>
             ) : null}
             <div className="min-w-0 flex-1">
-              <SheetTitle className="text-lg">{stepTitle[step]}</SheetTitle>
-              <SheetDescription id="booking-wizard-desc" className="text-sm">
+              <DialogTitle className="text-lg">{stepTitle[step]}</DialogTitle>
+              <DialogDescription id="booking-wizard-desc" className="text-sm">
                 {hub.title}
-              </SheetDescription>
+              </DialogDescription>
             </div>
           </div>
-        </SheetHeader>
+          {stepIndex >= 0 ? (
+            <div className="mt-4 space-y-1.5" aria-hidden>
+              <div className="flex gap-1">
+                {FLOW_STEPS.map((s, i) => (
+                  <span
+                    key={s}
+                    className={cn(
+                      'h-1.5 flex-1 rounded-full transition-colors',
+                      i <= stepIndex ? 'bg-primary' : 'bg-muted'
+                    )}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Etapa {stepIndex + 1} de {FLOW_STEPS.length}
+              </p>
+            </div>
+          ) : null}
+        </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        {showSummary && procedure ? (
+          <div className="flex flex-wrap gap-1.5 border-b bg-muted/30 px-5 py-2.5 text-xs">
+            <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1">
+              <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              {procedure.name}
+            </span>
+            {professional && stepIndex > 1 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1">
+                <UserRound className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                {professional.name}
+              </span>
+            ) : null}
+            {selectedSlot && stepIndex > 2 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1">
+                <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                {formatBookingDateLabel(selectedSlot.date)} · {selectedSlot.start_time}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
           {step === 'disabled' ? (
             <div className="space-y-4" role="alert">
               <p className="text-sm text-muted-foreground">
@@ -635,31 +720,78 @@ export function HubBookingWizard({
                 if (validatePatient()) setStep('review');
               }}
             >
+              <p className="text-sm text-muted-foreground">
+                Preencha para concluir o agendamento e o seu cadastro na clínica.
+              </p>
               <div className="space-y-2">
-                <Label htmlFor="booking-name">Nome</Label>
+                <Label htmlFor="booking-name">Nome completo</Label>
                 <Input
                   id="booking-name"
                   name="name"
                   autoComplete="name"
+                  maxLength={120}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="h-12"
+                  className="h-11"
                   required
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="booking-phone">Telefone / WhatsApp</Label>
-                <Input
-                  id="booking-phone"
-                  name="tel"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(formatPhoneMaskBr(e.target.value))}
-                  className="h-12"
-                  required
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="booking-phone">Telefone / WhatsApp</Label>
+                  <Input
+                    id="booking-phone"
+                    name="tel"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder="(11) 99999-9999"
+                    value={phone}
+                    onChange={(e) => setPhone(formatPhoneMaskBr(e.target.value))}
+                    className="h-11"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="booking-cpf">CPF</Label>
+                  <Input
+                    id="booking-cpf"
+                    name="cpf"
+                    inputMode="numeric"
+                    placeholder="000.000.000-00"
+                    value={cpf}
+                    onChange={(e) => setCpf(formatCPF(e.target.value))}
+                    className="h-11"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="booking-birth">Data de nascimento</Label>
+                  <Input
+                    id="booking-birth"
+                    name="bday"
+                    type="date"
+                    autoComplete="bday"
+                    min="1900-01-01"
+                    max={todayYmdLocal()}
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    className="h-11"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="booking-insurance">Convênio (opcional)</Label>
+                  <Input
+                    id="booking-insurance"
+                    name="insurance"
+                    maxLength={120}
+                    placeholder="Particular"
+                    value={insurance}
+                    onChange={(e) => setInsurance(e.target.value)}
+                    className="h-11"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="booking-email">E-mail (opcional)</Label>
@@ -670,7 +802,7 @@ export function HubBookingWizard({
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="h-12"
+                  className="h-11"
                 />
               </div>
               <div className="space-y-2">
@@ -721,44 +853,64 @@ export function HubBookingWizard({
 
           {step === 'review' ? (
             <div className="space-y-4">
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="text-muted-foreground">Procedimento</dt>
-                  <dd className="font-medium">{procedure?.name}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Profissional</dt>
-                  <dd className="font-medium">{professional?.name}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Data</dt>
-                  <dd className="font-medium capitalize">
-                    {selectedSlot ? formatBookingDateLabel(selectedSlot.date) : '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Horário</dt>
-                  <dd className="font-medium">
-                    {selectedSlot
-                      ? formatBookingTimeRange(selectedSlot.start_time, selectedSlot.end_time)
-                      : '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Nome</dt>
-                  <dd className="font-medium">{name}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Telefone</dt>
-                  <dd className="font-medium">{phone}</dd>
-                </div>
-                {email.trim() ? (
+              <section className="space-y-3 rounded-xl border p-4">
+                <h3 className="text-sm font-semibold">Agendamento</h3>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div>
-                    <dt className="text-muted-foreground">E-mail</dt>
-                    <dd className="font-medium">{email}</dd>
+                    <dt className="text-muted-foreground">Procedimento</dt>
+                    <dd className="font-medium">{procedure?.name}</dd>
                   </div>
-                ) : null}
-              </dl>
+                  <div>
+                    <dt className="text-muted-foreground">Profissional</dt>
+                    <dd className="font-medium">{professional?.name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Data</dt>
+                    <dd className="font-medium first-letter:uppercase">
+                      {selectedSlot ? formatBookingDateLabel(selectedSlot.date) : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Horário</dt>
+                    <dd className="font-medium">
+                      {selectedSlot
+                        ? formatBookingTimeRange(selectedSlot.start_time, selectedSlot.end_time)
+                        : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+              <section className="space-y-3 rounded-xl border p-4">
+                <h3 className="text-sm font-semibold">Paciente</h3>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">Nome</dt>
+                    <dd className="font-medium">{name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Telefone</dt>
+                    <dd className="font-medium">{phone}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">CPF</dt>
+                    <dd className="font-medium">{cpf}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Nascimento</dt>
+                    <dd className="font-medium">{formatBirthDate(birthDate)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Convênio</dt>
+                    <dd className="font-medium">{insurance.trim() || 'Particular'}</dd>
+                  </div>
+                  {email.trim() ? (
+                    <div className="col-span-2">
+                      <dt className="text-muted-foreground">E-mail</dt>
+                      <dd className="break-all font-medium">{email}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </section>
               {confirmError ? (
                 <p className="text-sm text-destructive" role="alert">
                   {confirmError}
@@ -783,11 +935,17 @@ export function HubBookingWizard({
           ) : null}
 
           {step === 'done' ? (
-            <div className="space-y-4">
-              <p className="text-base font-medium text-foreground">
-                Agendamento confirmado com sucesso.
-              </p>
-              <dl className="space-y-3 text-sm">
+            <div className="space-y-5">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <CheckCircle2 className="h-12 w-12 text-emerald-600" aria-hidden />
+                <p className="text-base font-semibold text-foreground">
+                  Agendamento confirmado com sucesso!
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Te esperamos, {name.trim().split(/\s+/)[0]}.
+                </p>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border p-4 text-sm">
                 <div>
                   <dt className="text-muted-foreground">Procedimento</dt>
                   <dd className="font-medium">{procedure?.name}</dd>
@@ -798,7 +956,7 @@ export function HubBookingWizard({
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Data</dt>
-                  <dd className="font-medium capitalize">
+                  <dd className="font-medium first-letter:uppercase">
                     {selectedSlot ? formatBookingDateLabel(selectedSlot.date) : '—'}
                   </dd>
                 </div>
@@ -810,7 +968,7 @@ export function HubBookingWizard({
                       : '—'}
                   </dd>
                 </div>
-                <div>
+                <div className="col-span-2">
                   <dt className="text-muted-foreground">Clínica</dt>
                   <dd className="font-medium">{hub.title}</dd>
                 </div>
@@ -821,7 +979,7 @@ export function HubBookingWizard({
             </div>
           ) : null}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

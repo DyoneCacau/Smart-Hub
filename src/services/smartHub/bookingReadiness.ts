@@ -1,4 +1,7 @@
-import { supabase } from '@/integrations/supabase/client';
+import { isSupabaseConfigured } from '@/integrations/supabase/client';
+import { remoteDb } from '@/integrations/supabase/remoteDb';
+import { DEFAULT_BUSINESS_HOURS, type BusinessHours } from '@/lib/clinicSettings';
+import { localBookingReadinessSnapshot } from './localBooking';
 import {
   buildBookingCatalogProcedures,
   type ProfessionalProcedureLink,
@@ -131,51 +134,50 @@ export async function fetchBookingReadiness(params: {
 }): Promise<BookingReadinessResult> {
   const { clinicId, hasSmartHubModule, hasAgendaModule } = params;
 
-  const [procRes, profRes, schedRes, linkRes] = await Promise.all([
-    supabase
-      .from('clinic_procedures')
+  if (!isSupabaseConfigured) {
+    return evaluateBookingReadiness(
+      localBookingReadinessSnapshot({ hasSmartHubModule, hasAgendaModule })
+    );
+  }
+
+  const [procRes, profRes, clinicRes] = await Promise.all([
+    remoteDb
+      .from('procedures')
       .select('id, is_active, duration_minutes')
       .eq('clinic_id', clinicId),
-    supabase
-      .from('professionals')
-      .select('id, is_active, performs_all_procedures')
-      .eq('clinic_id', clinicId),
-    supabase
-      .from('professional_work_schedules')
-      .select('professional_id, is_active')
-      .eq('clinic_id', clinicId)
-      .eq('is_active', true),
-    supabase
-      .from('professional_procedures')
-      .select('professional_id, procedure_id')
-      .eq('clinic_id', clinicId),
+    remoteDb.from('professionals').select('id, is_active').eq('clinic_id', clinicId),
+    remoteDb.from('clinics').select('business_hours').eq('id', clinicId).maybeSingle(),
   ]);
 
   if (procRes.error) throw procRes.error;
   if (profRes.error) throw profRes.error;
-  if (schedRes.error) throw schedRes.error;
-  if (linkRes.error) throw linkRes.error;
+  if (clinicRes.error) throw clinicRes.error;
+
+  const professionals = (profRes.data || []) as Array<{ id: string; is_active: boolean | null }>;
+  const storedHours = clinicRes.data?.business_hours as Partial<BusinessHours> | null | undefined;
+  const days = Array.isArray(storedHours?.days) ? storedHours.days : DEFAULT_BUSINESS_HOURS.days;
 
   return evaluateBookingReadiness({
     hasSmartHubModule,
     hasAgendaModule,
-    procedures: (procRes.data || []).map((p) => ({
+    procedures: ((procRes.data || []) as Array<{ id: string; is_active: boolean | null; duration_minutes: number }>).map(
+      (p) => ({
+        id: p.id,
+        is_active: p.is_active !== false,
+        duration_minutes: Number(p.duration_minutes),
+      })
+    ),
+    professionals: professionals.map((p) => ({
       id: p.id,
       is_active: p.is_active !== false,
-      duration_minutes: Number(p.duration_minutes),
+      performs_all_procedures: true,
     })),
-    professionals: (profRes.data || []).map((p) => ({
-      id: p.id,
-      is_active: p.is_active !== false,
-      performs_all_procedures: p.performs_all_procedures !== false,
-    })),
-    workSchedules: (schedRes.data || []).map((s) => ({
-      professional_id: s.professional_id,
-      is_active: s.is_active !== false,
-    })),
-    links: (linkRes.data || []).map((l) => ({
-      professional_id: l.professional_id,
-      procedure_id: l.procedure_id,
-    })),
+    workSchedules:
+      days.length > 0
+        ? professionals
+            .filter((p) => p.is_active !== false)
+            .map((p) => ({ professional_id: p.id, is_active: true }))
+        : [],
+    links: [],
   });
 }

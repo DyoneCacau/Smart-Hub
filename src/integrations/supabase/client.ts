@@ -2,20 +2,25 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const ENV_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const ENV_SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  throw new Error(
-    'ERRO DE CONFIGURACAO: Variaveis de ambiente do Supabase nao estao configuradas.\n\n' +
-    'Passos:\n' +
-    '1. Copie .env.example para .env\n' +
-    '2. Edite o .env com suas credenciais do Supabase\n' +
-    '3. Reinicie o servidor\n\n' +
-    `- VITE_SUPABASE_URL: ${SUPABASE_URL ? 'OK' : 'FALTANDO'}\n` +
-    `- VITE_SUPABASE_ANON_KEY: ${SUPABASE_PUBLISHABLE_KEY ? 'OK' : 'FALTANDO'}\n`
+export const isSupabaseConfigured = Boolean(ENV_SUPABASE_URL && ENV_SUPABASE_KEY);
+
+/** URL e chave pública do projeto (a chave pública pode ir para sistemas externos). */
+export const supabasePublicUrl: string = ENV_SUPABASE_URL ?? '';
+export const supabasePublicKey: string = ENV_SUPABASE_KEY ?? '';
+
+if (!isSupabaseConfigured) {
+  console.warn(
+    '[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY nao configuradas. ' +
+    'O app roda sem backend: login e dados remotos ficam indisponiveis.'
   );
 }
+
+// createClient exige URL e chave nao vazias; sem configuracao, as chamadas falham e retornam { error }.
+const SUPABASE_URL = ENV_SUPABASE_URL || 'http://127.0.0.1:54321';
+const SUPABASE_PUBLISHABLE_KEY = ENV_SUPABASE_KEY || 'supabase-nao-configurado';
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

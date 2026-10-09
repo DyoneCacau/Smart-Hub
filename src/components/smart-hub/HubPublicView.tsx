@@ -311,7 +311,7 @@ export const HubPublicView = memo(function HubPublicView({
       style={{
         ...bgStyle,
         color: textColor,
-        fontFamily: theme?.font_family || hub.font_family,
+        fontFamily: `${theme?.font_family || hub.font_family || 'Inter'}, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`,
       }}
     >
       <div

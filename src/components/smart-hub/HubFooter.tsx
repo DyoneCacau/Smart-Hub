@@ -7,7 +7,7 @@ interface HubFooterProps {
 }
 
 export const HubFooter = memo(function HubFooter({
-  text = 'Powered by Healthcare Smart Hub',
+  text = 'Powered by SmartHub',
   className,
 }: HubFooterProps) {
   return (

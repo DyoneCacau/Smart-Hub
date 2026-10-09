@@ -255,7 +255,7 @@ export function previewBehaviorLines(
       return opts?.isAppointmentFlow
         ? [
             'Abre o link de agenda externa informado.',
-            'O agendamento ocorre fora do Healthcare.',
+            'O agendamento ocorre fora do SmartHub.',
           ]
         : ['O visitante será levado para outro site.'];
     case 'phone':

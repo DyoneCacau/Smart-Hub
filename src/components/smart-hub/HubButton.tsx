@@ -1,5 +1,5 @@
 import { memo, type MouseEvent } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ChevronRight, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SmartHubButton } from '@/types/smartHub';
 import { buildDestinationUrl } from '@/services/smartHub/buttonDestinations';
@@ -54,6 +54,13 @@ export const HubButton = memo(function HubButton({
     openInNewTabPref !== undefined
       ? openInNewTabPref
       : button.type !== 'internal' && button.type !== 'phone' && button.type !== 'email';
+
+  const opensInPage = button.click_action === 'booking' || button.click_action === 'form';
+  const trailingIcon = opensInPage ? (
+    <ChevronRight className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+  ) : (
+    <ExternalLink className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+  );
 
   const handleClick = (e: MouseEvent) => {
     if (onClick) {
@@ -112,7 +119,7 @@ export const HubButton = memo(function HubButton({
               <div className="truncate text-sm opacity-80">{button.subtitle}</div>
             )}
           </div>
-          <ExternalLink className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+          {trailingIcon}
         </div>
       </a>
     );
@@ -150,7 +157,7 @@ export const HubButton = memo(function HubButton({
             <div className="truncate text-sm opacity-80">{button.subtitle}</div>
           )}
         </div>
-        <ExternalLink className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+        {trailingIcon}
       </a>
     );
   }
@@ -188,7 +195,7 @@ export const HubButton = memo(function HubButton({
           )}
         </div>
       </div>
-      <ExternalLink className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+      {trailingIcon}
     </a>
   );
 });

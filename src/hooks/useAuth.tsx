@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { isSupabaseConfigured, supabase } from '@/integrations/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 
 type AppRole = 'admin' | 'receptionist' | 'seller' | 'professional' | 'superadmin';
@@ -37,6 +37,29 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // source of truth, enforced by RLS on the server.
 const SUPERADMIN_EMAILS: string[] = [];
 
+/** Sem backend configurado, o app roda com um administrador local (dados no navegador). */
+const LOCAL_USER = {
+  id: 'local-user',
+  email: 'local@smart-hub',
+  aud: 'local',
+  app_metadata: {},
+  user_metadata: { name: 'Administrador' },
+  created_at: new Date(0).toISOString(),
+} as User;
+
+const LOCAL_PROFILE: Profile = {
+  id: 'local-user',
+  user_id: 'local-user',
+  name: 'Administrador',
+  email: 'local@smart-hub',
+  phone: null,
+  is_active: true,
+  created_at: new Date(0).toISOString(),
+  updated_at: new Date(0).toISOString(),
+};
+
+const LOCAL_MODE_ERROR = new Error('Login indisponível: o sistema está rodando sem backend.');
+
 const logAuthError = (operation: string, error: unknown) => {
   const safeError = error && typeof error === 'object'
     ? {
@@ -48,11 +71,11 @@ const logAuthError = (operation: string, error: unknown) => {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(isSupabaseConfigured ? null : LOCAL_USER);
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [roles, setRoles] = useState<AppRole[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [profile, setProfile] = useState<Profile | null>(isSupabaseConfigured ? null : LOCAL_PROFILE);
+  const [roles, setRoles] = useState<AppRole[]>(isSupabaseConfigured ? [] : ['admin']);
+  const [isLoading, setIsLoading] = useState(isSupabaseConfigured);
 
   const fetchProfile = async (userId: string) => {
     try {
@@ -89,12 +112,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Não criar clínica automaticamente no login; usuário sem clínica deve contatar o suporte.
 
   const refreshProfile = async () => {
-    if (user) {
+    if (user && isSupabaseConfigured) {
       await fetchProfile(user.id);
     }
   };
 
   useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
@@ -132,11 +157,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    if (!isSupabaseConfigured) return { error: LOCAL_MODE_ERROR };
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
   };
 
   const signUp = async (email: string, password: string, name: string) => {
+    if (!isSupabaseConfigured) return { error: LOCAL_MODE_ERROR };
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -149,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (!isSupabaseConfigured) return;
     const { error } = await supabase.auth.signOut();
     if (error) {
       logAuthError('Saída da sessão', error);

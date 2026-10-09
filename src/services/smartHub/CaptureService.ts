@@ -1,5 +1,7 @@
-import { supabase } from '@/integrations/supabase/client';
-import { CAPTURE_PUBLIC_ERROR_MESSAGES } from './resolveCaptureConfig';
+import { isSupabaseConfigured } from '@/integrations/supabase/client';
+import { remoteDb } from '@/integrations/supabase/remoteDb';
+import { buildWhatsappUrl, localCapture } from './localBooking';
+import { CAPTURE_PUBLIC_ERROR_MESSAGES, resolveCaptureConfig } from './resolveCaptureConfig';
 
 export interface SmartHubCaptureSubmitInput {
   slug: string;
@@ -46,45 +48,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-async function parseFunctionError(error: unknown): Promise<{
-  message: string;
-  code?: string;
-  request_id?: string;
-  status?: number;
-}> {
-  if (isRecord(error) && error.context instanceof Response) {
-    const status = error.context.status;
-    const payload: unknown = await error.context.clone().json().catch(() => null);
-    if (isRecord(payload)) {
-      const code = typeof payload.code === 'string' ? payload.code : undefined;
-      const message =
-        (typeof payload.message === 'string' && payload.message) ||
-        (typeof payload.error === 'string' && payload.error) ||
-        undefined;
-      const request_id =
-        typeof payload.request_id === 'string' ? payload.request_id : undefined;
-      if (message || code) {
-        return {
-          message:
-            message ||
-            CAPTURE_PUBLIC_ERROR_MESSAGES[code || ''] ||
-            CAPTURE_PUBLIC_ERROR_MESSAGES.server_error,
-          code,
-          request_id,
-          status,
-        };
-      }
-    }
-    if (status === 429) {
-      return { message: CAPTURE_PUBLIC_ERROR_MESSAGES.rate_limited, code: 'rate_limited', status };
-    }
-  }
-  if (error instanceof TypeError) {
-    return { message: CAPTURE_PUBLIC_ERROR_MESSAGES.network_error, code: 'network_error' };
-  }
-  return { message: CAPTURE_PUBLIC_ERROR_MESSAGES.server_error, code: 'server_error' };
-}
-
 function mapPublicMessage(code?: string, fallback?: string): string {
   if (code && CAPTURE_PUBLIC_ERROR_MESSAGES[code]) {
     return CAPTURE_PUBLIC_ERROR_MESSAGES[code];
@@ -92,72 +55,67 @@ function mapPublicMessage(code?: string, fallback?: string): string {
   return fallback || CAPTURE_PUBLIC_ERROR_MESSAGES.server_error;
 }
 
+async function submitRemote(input: SmartHubCaptureSubmitInput): Promise<SmartHubCaptureSubmitResult> {
+  const action = input.action || 'submit';
+  const isAdminTest = action === 'test';
+  try {
+    const { data, error } = await remoteDb.rpc('smart_hub_capture_submit', {
+      p_payload: { ...input, action, website: input.website || '' },
+    });
+    if (error) {
+      const code = /fetch|network/i.test(error.message) ? 'network_error' : 'server_error';
+      return {
+        ok: false,
+        code,
+        error: isAdminTest ? error.message : mapPublicMessage(code),
+      };
+    }
+
+    const payload = isRecord(data) ? data : {};
+    if (action === 'validate') {
+      return {
+        ok: payload.ok === true,
+        ready: payload.ready === true,
+        issues: Array.isArray(payload.issues) ? (payload.issues as string[]) : undefined,
+        message: typeof payload.message === 'string' ? payload.message : undefined,
+      };
+    }
+
+    if (payload.ok !== true) {
+      const code = typeof payload.code === 'string' ? payload.code : 'server_error';
+      return { ok: false, code, error: mapPublicMessage(code) };
+    }
+
+    const config = resolveCaptureConfig(payload.hub_capture_config, payload.button_capture_config);
+    return {
+      ok: true,
+      result: payload.result === 'updated' ? 'updated' : 'created',
+      created: payload.created !== false,
+      duplicate: payload.duplicate === true,
+      stage: typeof payload.stage === 'string' ? payload.stage : config.initial_stage,
+      message: isAdminTest ? 'Lead de teste criado.' : config.success_message,
+      redirect_url: config.redirect_url,
+      whatsapp_url:
+        config.redirect_whatsapp_after_submit && config.whatsapp_phone
+          ? buildWhatsappUrl(config.whatsapp_phone, config.whatsapp_message)
+          : null,
+    };
+  } catch (err) {
+    const code = err instanceof TypeError ? 'network_error' : 'server_error';
+    return { ok: false, code, error: CAPTURE_PUBLIC_ERROR_MESSAGES[code] };
+  }
+}
+
 export const CaptureService = {
   async submitPublicForm(
     input: SmartHubCaptureSubmitInput
   ): Promise<SmartHubCaptureSubmitResult> {
-    try {
-      const { data, error } = await supabase.functions.invoke('smart-hub-capture', {
-        body: {
-          ...input,
-          action: input.action || 'submit',
-          website: input.website || '',
-        },
-      });
-
-      const isAdminTest = input.action === 'test';
-
-      if (error) {
-        const parsed = await parseFunctionError(error);
-        // Corpo às vezes também vem em data
-        const fromData = isRecord(data) ? data : null;
-        const code =
-          parsed.code ||
-          (fromData && typeof fromData.code === 'string' ? fromData.code : undefined);
-        const request_id =
-          parsed.request_id ||
-          (fromData && typeof fromData.request_id === 'string'
-            ? fromData.request_id
-            : undefined);
-        const serverMessage =
-          parsed.message ||
-          (fromData && typeof fromData.message === 'string' ? fromData.message : undefined);
-        // Visitante: mensagem genérica. Teste admin: preserva diagnóstico do servidor.
-        const message = isAdminTest
-          ? serverMessage || mapPublicMessage(code)
-          : mapPublicMessage(code, serverMessage);
-        return { ok: false, error: message, code, request_id };
-      }
-
-      const result = (data || {}) as SmartHubCaptureSubmitResult;
-      if (!result.ok) {
-        const code = result.code;
-        const serverMessage = result.message || result.error;
-        return {
-          ok: false,
-          error: isAdminTest
-            ? serverMessage || mapPublicMessage(code)
-            : mapPublicMessage(code, serverMessage),
-          code,
-          request_id: result.request_id,
-          issues: result.issues,
-        };
-      }
-      return result;
-    } catch (err) {
-      if (err instanceof TypeError) {
-        return {
-          ok: false,
-          error: CAPTURE_PUBLIC_ERROR_MESSAGES.network_error,
-          code: 'network_error',
-        };
-      }
-      return {
-        ok: false,
-        error: CAPTURE_PUBLIC_ERROR_MESSAGES.server_error,
-        code: 'server_error',
-      };
-    }
+    const result = isSupabaseConfigured
+      ? await submitRemote(input)
+      : await localCapture.submit(input);
+    return result.ok || result.issues
+      ? result
+      : { ...result, error: result.error || mapPublicMessage(result.code) };
   },
 
   async validateCapture(slug: string, buttonId?: string | null) {

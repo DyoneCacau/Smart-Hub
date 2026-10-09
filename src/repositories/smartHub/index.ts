@@ -1,7 +1,22 @@
-import { supabase } from '@/integrations/supabase/client';
+import { isSupabaseConfigured, supabase } from '@/integrations/supabase/client';
 import type { SmartHubTemplate, SmartHubDomain, SmartHubPage } from '@/types/smartHub';
+import { hubRepository as remoteHubRepository } from './hubRepository';
+import { buttonRepository as remoteButtonRepository } from './buttonRepository';
+import { assetRepository as remoteAssetRepository } from './assetRepository';
+import { themeRepository as remoteThemeRepository } from './themeRepository';
+import { analyticsRepository as remoteAnalyticsRepository } from './analyticsRepository';
+import {
+  localAnalyticsRepository,
+  localAssetRepository,
+  localButtonRepository,
+  localDomainRepository,
+  localHubRepository,
+  localPageRepository,
+  localTemplateRepository,
+  localThemeRepository,
+} from './localRepositories';
 
-export const templateRepository = {
+const remoteTemplateRepository = {
   async list(): Promise<SmartHubTemplate[]> {
     const { data, error } = await supabase
       .from('smart_hub_templates')
@@ -16,7 +31,7 @@ export const templateRepository = {
   },
 };
 
-export const domainRepository = {
+const remoteDomainRepository = {
   async listByHub(hubId: string, clinicId: string): Promise<SmartHubDomain[]> {
     const { data, error } = await supabase
       .from('smart_hub_domains')
@@ -63,7 +78,7 @@ export const domainRepository = {
   },
 };
 
-export const pageRepository = {
+const remotePageRepository = {
   async listByHub(hubId: string, clinicId: string): Promise<SmartHubPage[]> {
     const { data, error } = await supabase
       .from('smart_hub_pages')
@@ -114,8 +129,28 @@ export const pageRepository = {
   },
 };
 
-export { hubRepository } from './hubRepository';
-export { buttonRepository } from './buttonRepository';
-export { assetRepository } from './assetRepository';
-export { themeRepository } from './themeRepository';
-export { analyticsRepository } from './analyticsRepository';
+// Sem Supabase configurado, o Smart Hub persiste tudo no navegador (localRepositories).
+export const templateRepository: typeof remoteTemplateRepository = isSupabaseConfigured
+  ? remoteTemplateRepository
+  : localTemplateRepository;
+export const domainRepository: typeof remoteDomainRepository = isSupabaseConfigured
+  ? remoteDomainRepository
+  : localDomainRepository;
+export const pageRepository: typeof remotePageRepository = isSupabaseConfigured
+  ? remotePageRepository
+  : localPageRepository;
+export const hubRepository: typeof remoteHubRepository = isSupabaseConfigured
+  ? remoteHubRepository
+  : localHubRepository;
+export const buttonRepository: typeof remoteButtonRepository = isSupabaseConfigured
+  ? remoteButtonRepository
+  : localButtonRepository;
+export const assetRepository: typeof remoteAssetRepository = isSupabaseConfigured
+  ? remoteAssetRepository
+  : localAssetRepository;
+export const themeRepository: typeof remoteThemeRepository = isSupabaseConfigured
+  ? remoteThemeRepository
+  : localThemeRepository;
+export const analyticsRepository: typeof remoteAnalyticsRepository = isSupabaseConfigured
+  ? remoteAnalyticsRepository
+  : localAnalyticsRepository;

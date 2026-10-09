@@ -137,7 +137,7 @@ export const CONTACT_METHOD_OPTIONS: {
   {
     id: 'link',
     label: 'Link para agenda externa',
-    description: 'Abre uma página ou sistema de agendamento fora do Healthcare.',
+    description: 'Abre uma página ou sistema de agendamento fora do SmartHub.',
   },
 ];
 

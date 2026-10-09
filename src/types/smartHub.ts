@@ -1,4 +1,4 @@
-/** Tipos do módulo Healthcare Smart Hub (Fase 1 + 2 + 2.1) */
+/** Tipos do módulo Smart Hub (Fase 1 + 2 + 2.1) */
 
 export type SmartHubStatus = 'draft' | 'published' | 'offline' | 'archived';
 export type SmartHubPageStatus = 'draft' | 'published' | 'archived';

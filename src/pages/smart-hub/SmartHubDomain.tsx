@@ -48,7 +48,7 @@ export default function SmartHubDomain() {
         </div>
         <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
           Em breve você poderá conectar um domínio próprio (ex.: links.suaclinica.com.br). Por
-          enquanto, use o link padrão do Healthcare.
+          enquanto, use o link padrão do SmartHub.
         </div>
       </div>
     </SmartHubLayout>

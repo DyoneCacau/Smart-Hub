@@ -1,4 +1,6 @@
-import { supabase } from '@/integrations/supabase/client';
+import { isSupabaseConfigured } from '@/integrations/supabase/client';
+import { remoteDb } from '@/integrations/supabase/remoteDb';
+import { localBooking } from './localBooking';
 
 export const BOOKING_INITIAL_WINDOW_DAYS = 14;
 export const BOOKING_MAX_WINDOW_DAYS = 30;
@@ -79,6 +81,10 @@ export interface BookingConfirmInput {
     name: string;
     phone: string;
     email?: string;
+    cpf?: string;
+    /** yyyy-MM-dd */
+    birth_date?: string;
+    insurance?: string;
   };
 }
 
@@ -109,60 +115,37 @@ function mapPublicMessage(code?: string, fallback?: string): string {
   return fallback || BOOKING_PUBLIC_ERROR_MESSAGES.server_error;
 }
 
-async function parseFunctionError(error: unknown): Promise<{
-  message: string;
-  code?: string;
-  request_id?: string;
-  status?: number;
-}> {
-  if (isRecord(error) && error.context instanceof Response) {
-    const status = error.context.status;
-    const payload: unknown = await error.context.clone().json().catch(() => null);
-    if (isRecord(payload)) {
-      const code = typeof payload.code === 'string' ? payload.code : undefined;
-      const message =
-        (typeof payload.message === 'string' && payload.message) ||
-        (typeof payload.error === 'string' && payload.error) ||
-        undefined;
-      const request_id =
-        typeof payload.request_id === 'string' ? payload.request_id : undefined;
-      return {
-        message: mapPublicMessage(code, message),
-        code,
-        request_id,
-        status,
-      };
-    }
-    if (status === 429) {
-      return {
-        message: BOOKING_PUBLIC_ERROR_MESSAGES.rate_limited,
-        code: 'rate_limited',
-        status,
-      };
-    }
-  }
-  if (error instanceof TypeError) {
-    return { message: BOOKING_PUBLIC_ERROR_MESSAGES.network_error, code: 'network_error' };
-  }
-  return { message: BOOKING_PUBLIC_ERROR_MESSAGES.server_error, code: 'server_error' };
+type BookingFailure = { ok: false; code: string; error: string };
+
+function bookingFailure(code: string, message?: string): BookingFailure {
+  return { ok: false, code, error: mapPublicMessage(code, message) };
 }
 
-function parseErrorPayload(
-  data: unknown,
-  parsed: { message: string; code?: string; request_id?: string; status?: number }
-) {
-  const fromData = isRecord(data) ? data : null;
-  return {
-    ok: false as const,
-    code:
-      parsed.code ||
-      (fromData && typeof fromData.code === 'string' ? fromData.code : undefined),
-    error: parsed.message,
-    request_id:
-      parsed.request_id ||
-      (fromData && typeof fromData.request_id === 'string' ? fromData.request_id : undefined),
-    status: parsed.status,
-  };
+/** Chama uma RPC pública de agendamento (supabase/SETUP_NOVO_PROJETO.sql). */
+async function callBookingRpc(
+  fn: string,
+  args: Record<string, unknown>
+): Promise<Record<string, unknown> | BookingFailure> {
+  try {
+    const { data, error } = await remoteDb.rpc(fn, args);
+    if (error) {
+      return /fetch|network/i.test(error.message)
+        ? bookingFailure('network_error')
+        : bookingFailure('server_error');
+    }
+    const payload = isRecord(data) ? data : {};
+    if (payload.ok === false) {
+      const code = typeof payload.code === 'string' ? payload.code : 'server_error';
+      return bookingFailure(code, typeof payload.message === 'string' ? payload.message : undefined);
+    }
+    return payload;
+  } catch (err) {
+    return err instanceof TypeError ? bookingFailure('network_error') : bookingFailure('server_error');
+  }
+}
+
+function isBookingFailure(value: Record<string, unknown> | BookingFailure): value is BookingFailure {
+  return value.ok === false;
 }
 
 /** Datas YYYY-MM-DD em UTC calendar (janela de availability). */
@@ -255,6 +238,9 @@ export function buildConfirmPayload(input: BookingConfirmInput): Record<string, 
       name: input.patient.name.trim(),
       phone: digitsOnlyPhone(input.patient.phone) || input.patient.phone.trim(),
       email: input.patient.email?.trim() || undefined,
+      cpf: input.patient.cpf?.replace(/\D/g, '') || undefined,
+      birth_date: input.patient.birth_date || undefined,
+      insurance: input.patient.insurance?.trim() || undefined,
     },
   };
 }
@@ -287,55 +273,20 @@ function normalizeCatalogProcedures(raw: unknown): BookingCatalogProcedure[] {
     .filter((p): p is BookingCatalogProcedure => p !== null);
 }
 
+function withPublicMessage<T extends { ok: boolean; code?: string; error?: string }>(result: T): T {
+  return result.ok ? result : { ...result, error: result.error || mapPublicMessage(result.code) };
+}
+
 export const BookingService = {
   async getCatalog(slug: string): Promise<BookingCatalogResult> {
-    try {
-      const { data, error } = await supabase.functions.invoke('smart-hub-booking', {
-        body: { action: 'catalog', slug },
-      });
-
-      if (error) {
-        return parseErrorPayload(data, await parseFunctionError(error));
-      }
-
-      const payload = (data || {}) as Record<string, unknown>;
-      if (payload.ok === false || payload.success === false) {
-        const code = typeof payload.code === 'string' ? payload.code : undefined;
-        return {
-          ok: false,
-          code,
-          error: mapPublicMessage(
-            code,
-            typeof payload.message === 'string' ? payload.message : undefined
-          ),
-          request_id:
-            typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        };
-      }
-
-      const procedures = normalizeCatalogProcedures(payload.procedures);
-
-      return {
-        ok: true,
-        booking_enabled: payload.booking_enabled !== false,
-        procedures,
-        request_id:
-          typeof payload.request_id === 'string' ? payload.request_id : undefined,
-      };
-    } catch (err) {
-      if (err instanceof TypeError) {
-        return {
-          ok: false,
-          code: 'network_error',
-          error: BOOKING_PUBLIC_ERROR_MESSAGES.network_error,
-        };
-      }
-      return {
-        ok: false,
-        code: 'server_error',
-        error: BOOKING_PUBLIC_ERROR_MESSAGES.server_error,
-      };
-    }
+    if (!isSupabaseConfigured) return withPublicMessage(await localBooking.getCatalog(slug));
+    const payload = await callBookingRpc('smart_hub_booking_catalog', { p_slug: slug });
+    if (isBookingFailure(payload)) return payload;
+    return {
+      ok: true,
+      booking_enabled: payload.booking_enabled !== false,
+      procedures: normalizeCatalogProcedures(payload.procedures),
+    };
   },
 
   async getAvailability(input: {
@@ -345,131 +296,39 @@ export const BookingService = {
     from_date: string;
     to_date: string;
   }): Promise<BookingAvailabilityResult> {
-    try {
-      const { data, error } = await supabase.functions.invoke('smart-hub-booking', {
-        body: {
-          action: 'availability',
-          slug: input.slug,
-          procedure_id: input.procedure_id,
-          professional_id: input.professional_id,
-          from_date: input.from_date,
-          to_date: input.to_date,
-        },
-      });
-
-      if (error) {
-        return parseErrorPayload(data, await parseFunctionError(error));
-      }
-
-      const payload = (data || {}) as Record<string, unknown>;
-      if (payload.ok === false || payload.success === false) {
-        const code = typeof payload.code === 'string' ? payload.code : undefined;
-        return {
-          ok: false,
-          code,
-          error: mapPublicMessage(
-            code,
-            typeof payload.message === 'string' ? payload.message : undefined
-          ),
-          request_id:
-            typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        };
-      }
-
-      return {
-        ok: true,
-        booking_enabled: payload.booking_enabled !== false,
-        procedure: payload.procedure as BookingAvailabilityResult['procedure'],
-        professional: payload.professional as BookingAvailabilityResult['professional'],
-        timezone: typeof payload.timezone === 'string' ? payload.timezone : undefined,
-        slots: Array.isArray(payload.slots) ? (payload.slots as BookingSlot[]) : [],
-        request_id:
-          typeof payload.request_id === 'string' ? payload.request_id : undefined,
-      };
-    } catch (err) {
-      if (err instanceof TypeError) {
-        return {
-          ok: false,
-          code: 'network_error',
-          error: BOOKING_PUBLIC_ERROR_MESSAGES.network_error,
-        };
-      }
-      return {
-        ok: false,
-        code: 'server_error',
-        error: BOOKING_PUBLIC_ERROR_MESSAGES.server_error,
-      };
-    }
+    if (!isSupabaseConfigured) return withPublicMessage(await localBooking.getAvailability(input));
+    const payload = await callBookingRpc('smart_hub_booking_availability', {
+      p_slug: input.slug,
+      p_procedure_id: input.procedure_id,
+      p_professional_id: input.professional_id,
+      p_from_date: input.from_date,
+      p_to_date: input.to_date,
+    });
+    if (isBookingFailure(payload)) return payload;
+    return {
+      ok: true,
+      booking_enabled: payload.booking_enabled !== false,
+      procedure: payload.procedure as BookingAvailabilityResult['procedure'],
+      professional: payload.professional as BookingAvailabilityResult['professional'],
+      timezone: typeof payload.timezone === 'string' ? payload.timezone : undefined,
+      slots: Array.isArray(payload.slots) ? (payload.slots as BookingSlot[]) : [],
+    };
   },
 
   async confirm(input: BookingConfirmInput): Promise<BookingConfirmResult> {
-    try {
-      const body = buildConfirmPayload(input);
-      const { data, error } = await supabase.functions.invoke('smart-hub-booking', {
-        body,
-      });
-
-      if (error) {
-        const parsed = await parseFunctionError(error);
-        const fromData = isRecord(data) ? data : null;
-        return {
-          ok: false,
-          code:
-            parsed.code ||
-            (fromData && typeof fromData.code === 'string' ? fromData.code : undefined),
-          error: parsed.message,
-          request_id:
-            parsed.request_id ||
-            (fromData && typeof fromData.request_id === 'string'
-              ? fromData.request_id
-              : undefined),
-          http_status: parsed.status,
-        };
-      }
-
-      const payload = (data || {}) as Record<string, unknown>;
-      if (payload.ok === false || payload.success === false) {
-        const code = typeof payload.code === 'string' ? payload.code : undefined;
-        return {
-          ok: false,
-          code,
-          error: mapPublicMessage(
-            code,
-            typeof payload.message === 'string' ? payload.message : undefined
-          ),
-          request_id:
-            typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        };
-      }
-
-      return {
-        ok: true,
-        success: true,
-        appointment_id:
-          typeof payload.appointment_id === 'string' ? payload.appointment_id : undefined,
-        status: typeof payload.status === 'string' ? payload.status : 'confirmed',
-        patient_id: typeof payload.patient_id === 'string' ? payload.patient_id : undefined,
-        lead_id: typeof payload.lead_id === 'string' ? payload.lead_id : undefined,
-        duplicate_patient: payload.duplicate_patient === true,
-        duplicate_lead: payload.duplicate_lead === true,
-        slot: payload.slot as BookingConfirmResult['slot'],
-        request_id:
-          typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        http_status: payload.duplicate_patient === true || payload.duplicate_lead === true ? 200 : 201,
-      };
-    } catch (err) {
-      if (err instanceof TypeError) {
-        return {
-          ok: false,
-          code: 'network_error',
-          error: BOOKING_PUBLIC_ERROR_MESSAGES.network_error,
-        };
-      }
-      return {
-        ok: false,
-        code: 'server_error',
-        error: BOOKING_PUBLIC_ERROR_MESSAGES.server_error,
-      };
-    }
+    if (!isSupabaseConfigured) return withPublicMessage(await localBooking.confirm(input));
+    const payload = await callBookingRpc('smart_hub_booking_confirm', {
+      p_payload: buildConfirmPayload(input),
+    });
+    if (isBookingFailure(payload)) return payload;
+    return {
+      ok: true,
+      success: true,
+      appointment_id: typeof payload.appointment_id === 'string' ? payload.appointment_id : undefined,
+      status: typeof payload.status === 'string' ? payload.status : 'confirmed',
+      patient_id: typeof payload.patient_id === 'string' ? payload.patient_id : undefined,
+      duplicate_patient: payload.duplicate_patient === true,
+      slot: payload.slot as BookingConfirmResult['slot'],
+    };
   },
 };

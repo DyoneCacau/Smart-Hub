@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { useClinic } from './useClinic';
+import { useMemo } from 'react';
+import { isSupabaseConfigured } from '@/integrations/supabase/client';
+import { useAuth } from './useAuth';
 
 export type ClinicStaffOption = {
   id: string;
@@ -8,47 +8,15 @@ export type ClinicStaffOption = {
   role?: string | null;
 };
 
-/** Usuários da clínica ativa (para responsável do CRM / vendedor). */
+/** Usuários da clínica (responsável pelos contatos do Smart Hub): só o dono da conta. */
 export function useClinicStaffOptions() {
-  const { clinicId } = useClinic();
+  const { user, profile } = useAuth();
 
-  const { data: staff = [], isLoading } = useQuery({
-    queryKey: ['clinic-staff-options', clinicId],
-    queryFn: async () => {
-      if (!clinicId) return [] as ClinicStaffOption[];
+  const staff = useMemo<ClinicStaffOption[]>(() => {
+    // Sem backend o usuário local não tem UUID válido para ser responsável.
+    if (!isSupabaseConfigured || !user) return [];
+    return [{ id: user.id, name: profile?.name || user.email || 'Administrador', role: 'admin' }];
+  }, [user, profile?.name]);
 
-      const { data: clinicUsers, error } = await supabase
-        .from('clinic_users')
-        .select('user_id')
-        .eq('clinic_id', clinicId);
-
-      if (error) throw error;
-      const userIds = (clinicUsers || []).map((r: { user_id: string }) => r.user_id);
-      if (userIds.length === 0) return [] as ClinicStaffOption[];
-
-      const [{ data: profiles }, { data: roles }] = await Promise.all([
-        supabase.from('profiles').select('user_id, name').in('user_id', userIds),
-        supabase
-          .from('user_roles')
-          .select('user_id, role')
-          .in('user_id', userIds)
-          .in('role', ['admin', 'receptionist', 'seller', 'professional']),
-      ]);
-
-      const roleMap = new Map(
-        (roles || []).map((r: { user_id: string; role: string }) => [r.user_id, r.role]),
-      );
-
-      return (profiles || [])
-        .map((p: { user_id: string; name: string | null }) => ({
-          id: p.user_id,
-          name: p.name || 'Usuário',
-          role: roleMap.get(p.user_id) || null,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-    },
-    enabled: !!clinicId,
-  });
-
-  return { staff, isLoading };
+  return { staff, isLoading: false };
 }

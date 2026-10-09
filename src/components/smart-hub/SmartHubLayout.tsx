@@ -1,6 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard,
   FileEdit,
   LayoutTemplate,
   MousePointerClick,
@@ -8,11 +7,13 @@ import {
   Settings,
   Globe,
   Eye,
+  LayoutDashboard,
 } from 'lucide-react';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard', path: '/smart-hub', icon: LayoutDashboard, exact: true },
+  { label: 'Dashboard', path: '/smart-hub/dashboard', icon: LayoutDashboard },
   { label: 'Prévia', path: '/smart-hub/previa', icon: Eye },
   { label: 'Páginas', path: '/smart-hub/paginas', icon: FileEdit },
   { label: 'Templates', path: '/smart-hub/templates', icon: LayoutTemplate },
@@ -22,6 +23,38 @@ const NAV_ITEMS = [
   { label: 'Domínio', path: '/smart-hub/dominio', icon: Globe },
 ];
 
+function SmartHubTabs() {
+  const location = useLocation();
+
+  return (
+    <div className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur">
+      <nav className="mx-auto w-full max-w-7xl overflow-x-auto px-4 sm:px-6">
+        <ul className="flex min-w-max gap-1 py-2">
+          {NAV_ITEMS.map(({ label, path, icon: Icon }) => {
+            const isActive = location.pathname.startsWith(path);
+            return (
+              <li key={path}>
+                <Link
+                  to={path}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition',
+                    isActive
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </div>
+  );
+}
+
 interface SmartHubLayoutProps {
   children: React.ReactNode;
   title: string;
@@ -29,48 +62,6 @@ interface SmartHubLayoutProps {
   actions?: React.ReactNode;
 }
 
-export function SmartHubLayout({ children, title, description, actions }: SmartHubLayoutProps) {
-  const location = useLocation();
-
-  return (
-    <>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          {description && <p className="mt-1 text-muted-foreground">{description}</p>}
-        </div>
-        {actions}
-      </div>
-
-      <nav className="mb-6 -mx-1 overflow-x-auto">
-        <ul className="flex min-w-max gap-1 px-1">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = item.exact
-              ? location.pathname === item.path
-              : location.pathname.startsWith(item.path);
-
-            return (
-              <li key={item.path}>
-                <Link
-                  to={item.path}
-                  className={cn(
-                    'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition',
-                    isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      {children}
-    </>
-  );
+export function SmartHubLayout(props: SmartHubLayoutProps) {
+  return <AppLayout {...props} topNav={<SmartHubTabs />} />;
 }

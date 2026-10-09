@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { SmartHubLayout, DashboardStatsCard, PublishWorkflowCard } from '@/components/smart-hub';
+import { DashboardStatsCard, PublishWorkflowCard, SmartHubLayout } from '@/components/smart-hub';
 import { useSmartHub } from '@/hooks/useSmartHub';
 import { useHubAnalytics } from '@/hooks/useHubAnalytics';
 import { useClinic } from '@/hooks/useClinic';
@@ -56,7 +56,7 @@ export default function SmartHubDashboard() {
 
   if (clinicLoading || isLoading) {
     return (
-      <SmartHubLayout title="Smart Hub" description="Central inteligente de conversão">
+      <SmartHubLayout title="Dashboard" description="Central inteligente de conversão">
         <div className="flex justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
         </div>
@@ -66,7 +66,7 @@ export default function SmartHubDashboard() {
 
   if (!clinicId) {
     return (
-      <SmartHubLayout title="Smart Hub">
+      <SmartHubLayout title="Dashboard">
         <div className="rounded-lg border border-dashed p-12 text-center text-muted-foreground">
           Selecione uma clínica no menu lateral para gerenciar o Smart Hub.
         </div>
@@ -77,7 +77,7 @@ export default function SmartHubDashboard() {
   if (!hub) {
     return (
       <SmartHubLayout
-        title="Smart Hub"
+        title="Dashboard"
         description="Crie a página pública da sua clínica"
         actions={
           <Button onClick={openCreateDialog}>
@@ -180,7 +180,7 @@ export default function SmartHubDashboard() {
 
   return (
     <SmartHubLayout
-      title="Smart Hub"
+      title="Dashboard"
       description="Central inteligente de conversão da clínica"
       actions={
         <div className="flex flex-wrap gap-2">

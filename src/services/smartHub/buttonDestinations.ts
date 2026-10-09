@@ -71,16 +71,16 @@ export function validateSocialDomain(
   url: string
 ): string | null {
   const href = url.toLowerCase();
-  if (type === 'instagram' && href && !/instagram\.com|^\@?[\w.]+$/.test(href)) {
+  if (type === 'instagram' && href && !/instagram\.com|^@?[\w.]+$/.test(href)) {
     return 'Informe um perfil ou link do Instagram.';
   }
-  if (type === 'facebook' && href && !/facebook\.com|^\@?[\w.]+$/.test(href)) {
+  if (type === 'facebook' && href && !/facebook\.com|^@?[\w.]+$/.test(href)) {
     return 'Informe um perfil ou link do Facebook.';
   }
-  if (type === 'tiktok' && href && !/tiktok\.com|^\@?[\w.]+$/.test(href)) {
+  if (type === 'tiktok' && href && !/tiktok\.com|^@?[\w.]+$/.test(href)) {
     return 'Informe um perfil ou link do TikTok.';
   }
-  if (type === 'youtube' && href && !/youtube\.com|youtu\.be|^\@?[\w.]+$/.test(href)) {
+  if (type === 'youtube' && href && !/youtube\.com|youtu\.be|^@?[\w.]+$/.test(href)) {
     return 'Informe um canal ou link do YouTube.';
   }
   return null;
